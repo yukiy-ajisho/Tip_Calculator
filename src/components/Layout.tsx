@@ -63,7 +63,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <div className="flex flex-col h-full" style={{ gap: "12px" }}>
             {navigationItems.map((item) => {
               const IconComponent = item.icon;
-              const isActive = pathname === item.href;
+              const isActive =
+                pathname === item.href || pathname.startsWith(item.href + "/");
               return (
                 <Link
                   key={item.id}
