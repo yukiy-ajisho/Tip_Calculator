@@ -2,15 +2,21 @@
 
 import { useState, useMemo } from "react";
 import { AddRoleModal } from "@/components/AddRoleModal";
+import { AddStoreModal } from "@/components/AddStoreModal";
 
 export default function SettingsPage() {
   // タブ切り替えの状態
-  const [activeTab, setActiveTab] = useState<"role" | "percentage">("role");
+  const [activeTab, setActiveTab] = useState<"role" | "percentage" | "store">(
+    "role"
+  );
 
   // モーダルの状態
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [standardRoleGroup, setStandardRoleGroup] = useState("");
   const [actualRoleName, setActualRoleName] = useState("");
+  const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
+  const [storeName, setStoreName] = useState("");
+  const [storeAbbreviation, setStoreAbbreviation] = useState("");
 
   // モックデータ: Role Mapping（将来的にSupabaseから取得）
   const roleMappings = [
@@ -25,6 +31,22 @@ export default function SettingsPage() {
     {
       standardRoleGroup: "FLOATER",
       actualRoleName: "FLOATER",
+    },
+  ];
+
+  // モックデータ: Store Mapping（将来的にSupabaseから取得）
+  const storeMappings = [
+    {
+      storeName: "Burlingame",
+      storeAbbreviation: "BG",
+    },
+    {
+      storeName: "San Francisco",
+      storeAbbreviation: "SF",
+    },
+    {
+      storeName: "Downtown LA",
+      storeAbbreviation: "DLA",
     },
   ];
 
@@ -90,6 +112,16 @@ export default function SettingsPage() {
           >
             Percentage Setting
           </button>
+          <button
+            onClick={() => setActiveTab("store")}
+            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+              activeTab === "store"
+                ? "bg-white text-blue-700 shadow-sm"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            Store Setting
+          </button>
         </div>
 
         {/* Role タブのコンテンツ */}
@@ -125,7 +157,7 @@ export default function SettingsPage() {
               </table>
             </div>
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => setIsRoleModalOpen(true)}
               className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
             >
               Add Role
@@ -190,11 +222,52 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* Store タブのコンテンツ */}
+        {activeTab === "store" && (
+          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">
+              Store Mapping
+            </h3>
+            <div className="overflow-x-auto mb-4">
+              <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                      Store Name
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Store Abbreviation
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {storeMappings.map((mapping, index) => (
+                    <tr key={index}>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                        {mapping.storeName}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                        {mapping.storeAbbreviation}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button
+              onClick={() => setIsStoreModalOpen(true)}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              Add Store
+            </button>
+          </div>
+        )}
+
         {/* Add Role モーダル */}
         <AddRoleModal
-          isOpen={isModalOpen}
+          isOpen={isRoleModalOpen}
           onClose={() => {
-            setIsModalOpen(false);
+            setIsRoleModalOpen(false);
             setStandardRoleGroup("");
             setActualRoleName("");
           }}
@@ -204,9 +277,29 @@ export default function SettingsPage() {
           onActualRoleNameChange={setActualRoleName}
           onSave={() => {
             // Save機能はなし（モック）
-            setIsModalOpen(false);
+            setIsRoleModalOpen(false);
             setStandardRoleGroup("");
             setActualRoleName("");
+          }}
+        />
+
+        {/* Add Store モーダル */}
+        <AddStoreModal
+          isOpen={isStoreModalOpen}
+          onClose={() => {
+            setIsStoreModalOpen(false);
+            setStoreName("");
+            setStoreAbbreviation("");
+          }}
+          storeName={storeName}
+          storeAbbreviation={storeAbbreviation}
+          onStoreNameChange={setStoreName}
+          onStoreAbbreviationChange={setStoreAbbreviation}
+          onSave={() => {
+            // Save機能はなし（モック）
+            setIsStoreModalOpen(false);
+            setStoreName("");
+            setStoreAbbreviation("");
           }}
         />
       </div>

@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@handsontable/react": "^16.1.1",
+    "handsontable": "^16.1.1",
     "lucide-react": "^0.553.0",
     "next": "16.0.1",
     "papaparse": "^5.5.3",
@@ -18,6 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/papaparse": "^5.5.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.21",
