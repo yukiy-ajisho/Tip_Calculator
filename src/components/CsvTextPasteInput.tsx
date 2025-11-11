@@ -25,20 +25,30 @@ export function CsvTextPasteInput({
   onRemove,
   parsedData,
 }: CsvTextPasteInputProps) {
-  const [data, setData] = useState<CsvRow[]>(parsedData || []);
-  const [headers, setHeaders] = useState<string[]>([]);
+  const [data, setData] = useState<CsvRow[]>(
+    parsedData || [{ Date: "", "Cash Tips": "" }]
+  );
+  const [headers, setHeaders] = useState<string[]>(
+    parsedData && parsedData.length > 0
+      ? Object.keys(parsedData[0])
+      : ["Date", "Cash Tips"]
+  );
 
   const handleParseCSV = useCallback(
     (text: string) => {
-      Papa.parse<CsvRow>(text, {
-        header: true,
+      Papa.parse(text, {
         skipEmptyLines: true,
-        complete: (results: Papa.ParseResult<CsvRow>) => {
+        complete: (results: Papa.ParseResult<string[]>) => {
           if (results.data && results.data.length > 0) {
-            const parsedHeaders = Object.keys(results.data[0]);
-            setHeaders(parsedHeaders);
-            setData(results.data);
-            onDataChange(results.data);
+            // Map all rows to Date and Cash Tips columns
+            const mappedData: CsvRow[] = (results.data as string[][]).map(
+              (row) => ({
+                Date: row[0] || "",
+                "Cash Tips": row[1] || "",
+              })
+            );
+            setData(mappedData);
+            onDataChange(mappedData);
           }
         },
         error: (error: Error) => {
@@ -77,8 +87,7 @@ export function CsvTextPasteInput({
   };
 
   const handleRemove = () => {
-    setData([]);
-    setHeaders([]);
+    setData([{ Date: "", "Cash Tips": "" }]);
     onRemove();
   };
 
@@ -93,26 +102,13 @@ export function CsvTextPasteInput({
     <div className="mb-6">
       <h3 className="text-lg font-semibold text-gray-800 mb-4">{title}</h3>
 
-      {data.length === 0 ? (
-        <div
-          className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
-          onPaste={handleClipboardPaste}
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.currentTarget.classList.add("bg-blue-50");
-          }}
-          onDragLeave={(e) => {
-            e.currentTarget.classList.remove("bg-blue-50");
-          }}
-        >
-          <p className="text-gray-600 font-medium">Paste CSV data here</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">
-              {data.length} rows of data
-            </span>
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <span className="text-sm text-gray-600">
+            {data.filter((row) => Object.values(row).some((v) => v)).length}{" "}
+            rows of data
+          </span>
+          {data.some((row) => Object.values(row).some((v) => v)) && (
             <button
               onClick={handleRemove}
               className="p-1 text-gray-500 hover:text-red-500 transition-colors"
@@ -120,27 +116,30 @@ export function CsvTextPasteInput({
             >
               <X className="w-5 h-5" />
             </button>
-          </div>
-
-          {/* Handsontable でテーブル表示・編集 */}
-          <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
-            <HotTable
-              data={data}
-              columns={columns}
-              rowHeaders={true}
-              colHeaders={true}
-              width="100%"
-              height="auto"
-              stretchH="all"
-              licenseKey="non-commercial-and-evaluation"
-              afterChange={handleTableChange}
-              contextMenu={true}
-              dropdownMenu={true}
-              style={{ minHeight: "300px" }}
-            />
-          </div>
+          )}
         </div>
-      )}
+
+        {/* Handsontable でテーブル表示・編集 */}
+        <div
+          className="border border-gray-200 rounded-lg bg-white"
+          onPaste={handleClipboardPaste}
+          style={{ maxHeight: "250px", overflowY: "auto" }}
+        >
+          <HotTable
+            data={data}
+            columns={columns}
+            rowHeaders={true}
+            colHeaders={true}
+            width="100%"
+            height="auto"
+            stretchH="all"
+            licenseKey="non-commercial-and-evaluation"
+            afterChange={handleTableChange}
+            contextMenu={true}
+            dropdownMenu={true}
+          />
+        </div>
+      </div>
     </div>
   );
 }
