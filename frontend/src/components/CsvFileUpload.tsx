@@ -40,7 +40,7 @@ export function CsvFileUpload({
               onFileSelect(file, results.data);
               setIsProcessing(false);
             },
-            error: (error) => {
+            error: (error: Papa.ParseError) => {
               console.error("CSV parse error:", error);
               setIsProcessing(false);
             },
