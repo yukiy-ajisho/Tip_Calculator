@@ -11,6 +11,8 @@ interface AddStoreModalProps {
   onStoreNameChange: (value: string) => void;
   onStoreAbbreviationChange: (value: string) => void;
   onSave: () => void;
+  isAddingStore: boolean;
+  storeError: string | null;
 }
 
 export function AddStoreModal({
@@ -21,6 +23,8 @@ export function AddStoreModal({
   onStoreNameChange,
   onStoreAbbreviationChange,
   onSave,
+  isAddingStore,
+  storeError,
 }: AddStoreModalProps) {
   if (!isOpen) return null;
 
@@ -40,6 +44,9 @@ export function AddStoreModal({
         </div>
 
         <div className="p-6 space-y-4">
+          {storeError && (
+            <div className="text-red-600 text-sm mb-4">{storeError}</div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Store Name
@@ -50,6 +57,7 @@ export function AddStoreModal({
               onChange={(e) => onStoreNameChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="e.g., Burlingame, San Francisco"
+              disabled={isAddingStore}
             />
           </div>
           <div>
@@ -62,6 +70,7 @@ export function AddStoreModal({
               onChange={(e) => onStoreAbbreviationChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="e.g., BG, SF"
+              disabled={isAddingStore}
             />
           </div>
         </div>
@@ -70,14 +79,20 @@ export function AddStoreModal({
           <button
             onClick={onClose}
             className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+            disabled={isAddingStore}
           >
             Cancel
           </button>
           <button
             onClick={onSave}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              isAddingStore
+                ? "bg-blue-300 text-white cursor-not-allowed"
+                : "bg-blue-500 text-white hover:bg-blue-600"
+            }`}
+            disabled={isAddingStore}
           >
-            Save
+            {isAddingStore ? "Adding..." : "Save"}
           </button>
         </div>
       </div>

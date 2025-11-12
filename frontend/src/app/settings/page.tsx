@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { AddRoleModal } from "@/components/AddRoleModal";
 import { AddStoreModal } from "@/components/AddStoreModal";
 import { AddTraineeModal } from "@/components/AddTraineeModal";
 import { AddExistingRoleModal } from "@/components/AddExistingRoleModal";
+import { api } from "@/lib/api"; // apiユーティリティをインポート
+import { Store } from "@/types"; // Storeインターフェースをインポート
 
 export default function SettingsPage() {
   // タブ切り替えの状態
@@ -32,6 +34,12 @@ export default function SettingsPage() {
   const [isRoleSettingEditMode, setIsRoleSettingEditMode] = useState(false);
   const [editedRoleMappings, setEditedRoleMappings] = useState<any>([]);
 
+  // Store Setting関連のステート
+  const [storeMappings, setStoreMappings] = useState<Store[]>([]); // Storeインターフェースを使用
+  const [isLoadingStores, setIsLoadingStores] = useState(false); // ストア読み込み中
+  const [storeError, setStoreError] = useState<string | null>(null); // ストア関連のエラーメッセージ
+  const [isAddingStore, setIsAddingStore] = useState(false); // ストア追加中
+
   // モックデータ: Role Mapping（将来的にSupabaseから取得）
   const roleMappings = [
     {
@@ -54,21 +62,49 @@ export default function SettingsPage() {
     },
   ];
 
-  // モックデータ: Store Mapping（将来的にSupabaseから取得）
-  const storeMappings = [
-    {
-      storeName: "Burlingame",
-      storeAbbreviation: "BG",
-    },
-    {
-      storeName: "San Francisco",
-      storeAbbreviation: "SF",
-    },
-    {
-      storeName: "Downtown LA",
-      storeAbbreviation: "DLA",
-    },
-  ];
+  // ストアデータをAPIから取得する関数
+  const fetchStores = async () => {
+    setIsLoadingStores(true);
+    setStoreError(null);
+    try {
+      const data = await api.stores.getStores();
+      setStoreMappings(data);
+    } catch (error: any) {
+      console.error("Failed to fetch stores:", error);
+      setStoreError(error.message || "Failed to load stores.");
+    } finally {
+      setIsLoadingStores(false);
+    }
+  };
+
+  // コンポーネントマウント時、またはactiveTabが"store"になったときにストアデータを取得
+  useEffect(() => {
+    if (activeTab === "store") {
+      fetchStores();
+    }
+  }, [activeTab]);
+
+  // 新しいストアを追加するハンドラ
+  const handleAddStore = async () => {
+    if (!storeName || !storeAbbreviation) {
+      setStoreError("Store name and abbreviation are required.");
+      return;
+    }
+    setIsAddingStore(true);
+    setStoreError(null);
+    try {
+      await api.stores.addStore(storeName, storeAbbreviation);
+      await fetchStores(); // ストア追加後に一覧を再取得
+      setIsStoreModalOpen(false);
+      setStoreName("");
+      setStoreAbbreviation("");
+    } catch (error: any) {
+      console.error("Failed to add store:", error);
+      setStoreError(error.message || "Failed to add store.");
+    } finally {
+      setIsAddingStore(false);
+    }
+  };
 
   // パターン生成: 2^n - 1個のパターン（000を除外）
   const generatePatterns = (roleCount: number) => {
@@ -442,16 +478,45 @@ export default function SettingsPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {storeMappings.map((mapping, index) => (
-                    <tr key={index}>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
-                        {mapping.storeName}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                        {mapping.storeAbbreviation}
+                  {isLoadingStores ? (
+                    <tr>
+                      <td
+                        colSpan={2}
+                        className="px-4 py-3 text-center text-gray-500"
+                      >
+                        Loading stores...
                       </td>
                     </tr>
-                  ))}
+                  ) : storeError ? (
+                    <tr>
+                      <td
+                        colSpan={2}
+                        className="px-4 py-3 text-center text-red-500"
+                      >
+                        {storeError}
+                      </td>
+                    </tr>
+                  ) : storeMappings.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={2}
+                        className="px-4 py-3 text-center text-gray-500"
+                      >
+                        No stores found. Add one!
+                      </td>
+                    </tr>
+                  ) : (
+                    storeMappings.map((mapping, index) => (
+                      <tr key={index}>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                          {mapping.name}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                          {mapping.abbreviation}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -531,12 +596,9 @@ export default function SettingsPage() {
           storeAbbreviation={storeAbbreviation}
           onStoreNameChange={setStoreName}
           onStoreAbbreviationChange={setStoreAbbreviation}
-          onSave={() => {
-            // Save機能はなし（モック）
-            setIsStoreModalOpen(false);
-            setStoreName("");
-            setStoreAbbreviation("");
-          }}
+          onSave={handleAddStore}
+          isAddingStore={isAddingStore}
+          storeError={storeError}
         />
 
         {/* Add Existing Role モーダル */}
