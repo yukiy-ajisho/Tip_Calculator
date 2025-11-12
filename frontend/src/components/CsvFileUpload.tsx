@@ -33,7 +33,7 @@ export function CsvFileUpload({
         const reader = new FileReader();
         reader.onload = (e) => {
           const text = e.target?.result as string;
-          Papa.parse(text, {
+          Papa.parse<any>(text, {
             header: true,
             skipEmptyLines: true,
             complete: (results) => {
