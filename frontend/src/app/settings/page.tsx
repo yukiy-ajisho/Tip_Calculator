@@ -6,7 +6,7 @@ import { AddStoreModal } from "@/components/AddStoreModal";
 import { AddTraineeModal } from "@/components/AddTraineeModal";
 import { AddExistingRoleModal } from "@/components/AddExistingRoleModal";
 import { api } from "@/lib/api"; // apiユーティリティをインポート
-import { Store } from "@/types"; // Storeインターフェースをインポート
+import { Store, RoleMapping } from "@/types"; // StoreとRoleMappingインターフェースをインポート
 
 export default function SettingsPage() {
   // タブ切り替えの状態
@@ -32,7 +32,9 @@ export default function SettingsPage() {
     useState(false);
   const [selectedExistingRole, setSelectedExistingRole] = useState("");
   const [isRoleSettingEditMode, setIsRoleSettingEditMode] = useState(false);
-  const [editedRoleMappings, setEditedRoleMappings] = useState<any>([]);
+  const [editedRoleMappings, setEditedRoleMappings] = useState<RoleMapping[]>(
+    []
+  );
 
   // Store Setting関連のステート
   const [storeMappings, setStoreMappings] = useState<Store[]>([]); // Storeインターフェースを使用
@@ -41,7 +43,7 @@ export default function SettingsPage() {
   const [isAddingStore, setIsAddingStore] = useState(false); // ストア追加中
 
   // モックデータ: Role Mapping（将来的にSupabaseから取得）
-  const roleMappings = [
+  const roleMappings: RoleMapping[] = [
     {
       standardRoleGroup: "FRONT",
       actualRoleName: "FOH",
