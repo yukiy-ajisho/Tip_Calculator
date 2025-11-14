@@ -1,30 +1,78 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { WorkingHoursEditTable } from "@/components/WorkingHoursEditTable";
+import { TipEditTable } from "@/components/TipEditTable";
+import { CashTipEditTable } from "@/components/CashTipEditTable";
+import { api } from "@/lib/api";
+import {
+  FormattedWorkingHours,
+  FormattedTipData,
+  FormattedCashTip,
+} from "@/types";
 
 export default function EditPage() {
   const router = useRouter();
 
   // タブ切り替えの状態
-  const [activeTab, setActiveTab] = useState<"workingHours" | "tip">(
-    "workingHours"
-  );
+  const [activeTab, setActiveTab] = useState<
+    "workingHours" | "tip" | "cashTip"
+  >("workingHours");
 
-  // 編集データの状態（モック）
-  const [workingHoursData, setWorkingHoursData] = useState<any[]>([]);
-  const [tipData, setTipData] = useState<any[]>([]);
+  // 編集データの状態
+  const [workingHoursData, setWorkingHoursData] = useState<
+    FormattedWorkingHours[]
+  >([]);
+  const [tipData, setTipData] = useState<FormattedTipData[]>([]);
+  const [cashTipData, setCashTipData] = useState<FormattedCashTip[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // 将来的にSupabaseからデータ取得
-  // useEffect(() => {
-  //   const fetchData = async () => {
-  //     const data = await fetchFromSupabase();
-  //     setWorkingHoursData(data.workingHours);
-  //     setTipData(data.tip);
-  //   };
-  //   fetchData();
-  // }, []);
+  // ページ読み込み時にSupabaseからデータ取得（3つすべてをチェック）
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // 3つすべてを取得
+        const [workingHoursResult, tipResult, cashTipResult] =
+          await Promise.all([
+            api.tips.getFormattedWorkingHours(),
+            api.tips.getFormattedTipData(),
+            api.tips.getFormattedCashTip(),
+          ]);
+
+        // 一つでも欠けていたら /tip/import にリダイレクト
+        if (
+          !workingHoursResult.success ||
+          workingHoursResult.data.length === 0 ||
+          !tipResult.success ||
+          tipResult.data.length === 0 ||
+          !cashTipResult.success ||
+          cashTipResult.data.length === 0
+        ) {
+          router.push("/tip/import");
+          return;
+        }
+
+        // データを設定
+        setWorkingHoursData(workingHoursResult.data);
+        setTipData(tipResult.data);
+        setCashTipData(cashTipResult.data);
+      } catch (err) {
+        console.error("Error fetching formatted data:", err);
+        setError(err instanceof Error ? err.message : "Failed to load data");
+        // エラーが発生した場合も /tip/import にリダイレクト
+        router.push("/tip/import");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [router]);
 
   const handleBack = () => {
     router.push("/tip/import");
@@ -63,25 +111,65 @@ export default function EditPage() {
           >
             Tip CSV
           </button>
+          <button
+            onClick={() => setActiveTab("cashTip")}
+            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+              activeTab === "cashTip"
+                ? "bg-white text-blue-700 shadow-sm"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            Cash Tip
+          </button>
         </div>
 
         {/* Working Hours CSV タブのコンテンツ */}
         {activeTab === "workingHours" && (
           <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-            <WorkingHoursEditTable />
+            {isLoading ? (
+              <p className="text-gray-600">Loading working hours data...</p>
+            ) : error ? (
+              <p className="text-red-600">Error: {error}</p>
+            ) : workingHoursData.length === 0 ? (
+              <p className="text-gray-500">
+                No working hours data available. Please import a file first.
+              </p>
+            ) : (
+              <WorkingHoursEditTable data={workingHoursData} />
+            )}
           </div>
         )}
 
         {/* Tip CSV タブのコンテンツ */}
         {activeTab === "tip" && (
           <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-            <p className="text-gray-600">
-              Tip CSV data will be displayed here for editing.
-            </p>
-            {tipData.length === 0 && (
-              <p className="text-gray-500 text-sm mt-2">
-                No data available. Please import a file first.
+            {isLoading ? (
+              <p className="text-gray-600">Loading tip data...</p>
+            ) : error ? (
+              <p className="text-red-600">Error: {error}</p>
+            ) : tipData.length === 0 ? (
+              <p className="text-gray-500">
+                No tip data available. Please import a file first.
               </p>
+            ) : (
+              <TipEditTable data={tipData} />
+            )}
+          </div>
+        )}
+
+        {/* Cash Tip タブのコンテンツ */}
+        {activeTab === "cashTip" && (
+          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+            {isLoading ? (
+              <p className="text-gray-600">Loading cash tip data...</p>
+            ) : error ? (
+              <p className="text-red-600">Error: {error}</p>
+            ) : cashTipData.length === 0 ? (
+              <p className="text-gray-500">
+                No cash tip data available. Please import a file first.
+              </p>
+            ) : (
+              <CashTipEditTable data={cashTipData} />
             )}
           </div>
         )}
