@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { CsvFileUpload } from "@/components/CsvFileUpload";
 import { CsvTextPasteInput } from "@/components/CsvTextPasteInput";
 import { PreviewModal } from "@/components/PreviewModal";
+import { api } from "@/lib/api";
+import { Store } from "@/types";
 
 interface FileState {
   file: File | null;
@@ -12,19 +14,11 @@ interface FileState {
   isUploadedToSupabase: boolean;
 }
 
-interface Store {
-  storeName: string;
-  storeAbbreviation: string;
-}
-
-const stores: Store[] = [
-  { storeName: "Burlingame", storeAbbreviation: "BG" },
-  { storeName: "San Francisco", storeAbbreviation: "SF" },
-  { storeName: "Downtown LA", storeAbbreviation: "DLA" },
-];
-
 export default function ImportPage() {
   const router = useRouter();
+  const [stores, setStores] = useState<Store[]>([]);
+  const [isLoadingStores, setIsLoadingStores] = useState(true);
+  const [storeError, setStoreError] = useState<string | null>(null);
   const [selectedStore, setSelectedStore] = useState<string>("");
 
   const [workingHoursFile, setWorkingHoursFile] = useState<FileState>({
@@ -54,6 +48,51 @@ export default function ImportPage() {
     fileName: "",
     data: [],
   });
+
+  // ストア一覧を取得し、データが存在するかチェック
+  useEffect(() => {
+    const fetchStoresAndCheckData = async () => {
+      try {
+        setIsLoadingStores(true);
+        setStoreError(null);
+
+        // ストア一覧を取得
+        const storesData = await api.stores.getStores();
+        setStores(storesData);
+
+        // 3つすべてをチェック
+        const [workingHoursResult, tipResult, cashTipResult] =
+          await Promise.all([
+            api.tips.getFormattedWorkingHours(),
+            api.tips.getFormattedTipData(),
+            api.tips.getFormattedCashTip(),
+          ]);
+
+        // 3つすべてが存在する場合のみ /tip/edit にリダイレクト
+        if (
+          workingHoursResult.success &&
+          workingHoursResult.data.length > 0 &&
+          tipResult.success &&
+          tipResult.data.length > 0 &&
+          cashTipResult.success &&
+          cashTipResult.data.length > 0
+        ) {
+          // データが存在する場合、強制的に /tip/edit にリダイレクト
+          router.push("/tip/edit");
+          return;
+        }
+      } catch (error) {
+        console.error("Failed to fetch stores or check data:", error);
+        setStoreError(
+          error instanceof Error ? error.message : "Failed to load stores"
+        );
+      } finally {
+        setIsLoadingStores(false);
+      }
+    };
+
+    fetchStoresAndCheckData();
+  }, [router]);
 
   const handleWorkingHoursFileSelect = (file: File, data: any[]) => {
     setWorkingHoursFile({
@@ -126,33 +165,72 @@ export default function ImportPage() {
     }
   };
 
-  const handleNext = () => {
-    // 将来的にはSupabaseに保存
-    // await saveToSupabase(workingHoursFile, tipFile, cashTipData);
+  const handleNext = async () => {
+    if (
+      !workingHoursFile.file ||
+      !tipFile.file ||
+      !cashTipData.data ||
+      cashTipData.data.length === 0
+    ) {
+      console.error("Required files/data are not selected");
+      return;
+    }
 
-    // モック: 「Supabaseに保存した」という状態にする
-    setWorkingHoursFile((prev) => ({
-      ...prev,
-      isUploadedToSupabase: true,
-    }));
-    setTipFile((prev) => ({
-      ...prev,
-      isUploadedToSupabase: true,
-    }));
-    setCashTipData((prev) => ({
-      ...prev,
-      isUploadedToSupabase: true,
-    }));
+    try {
+      // Working Hours CSVを整形してSupabaseに保存
+      const workingHoursCsvText = await workingHoursFile.file.text();
+      const workingHoursCsvLines = workingHoursCsvText
+        .split("\n")
+        .filter((line) => line.trim() !== "");
+      await api.tips.formatWorkingHours(selectedStore, workingHoursCsvLines);
 
-    router.push("/tip/edit");
+      // Tip CSVを整形してSupabaseに保存
+      const tipCsvText = await tipFile.file.text();
+      const tipCsvLines = tipCsvText
+        .split("\n")
+        .filter((line) => line.trim() !== "");
+      await api.tips.formatTipData(selectedStore, tipCsvLines);
+
+      // Cash Tipデータを整形してSupabaseに保存
+      await api.tips.formatCashTip(selectedStore, cashTipData.data);
+
+      // モック: 「Supabaseに保存した」という状態にする
+      setWorkingHoursFile((prev) => ({
+        ...prev,
+        isUploadedToSupabase: true,
+      }));
+      setTipFile((prev) => ({
+        ...prev,
+        isUploadedToSupabase: true,
+      }));
+      setCashTipData((prev) => ({
+        ...prev,
+        isUploadedToSupabase: true,
+      }));
+
+      // 成功したら /tip/edit に遷移
+      router.push("/tip/edit");
+    } catch (error) {
+      console.error("Error formatting CSV data:", error);
+      // TODO: エラーハンドリング（エラーメッセージを表示するなど）
+    }
   };
 
   // Nextボタンのアクティベート条件
+  // 3つすべて（working hours, tip, cash tip）が存在する場合にのみ有効化
   const isNextEnabled =
+    selectedStore !== "" &&
     workingHoursFile.file !== null &&
     tipFile.file !== null &&
     cashTipData.data !== null &&
-    cashTipData.data.length > 0;
+    cashTipData.data.length > 0 &&
+    cashTipData.data.some(
+      (row) =>
+        row.Date &&
+        row.Date.trim() !== "" &&
+        row["Cash Tips"] &&
+        row["Cash Tips"].trim() !== ""
+    );
 
   return (
     <div className="p-8">
@@ -168,12 +246,19 @@ export default function ImportPage() {
             <select
               value={selectedStore}
               onChange={(e) => setSelectedStore(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              disabled={isLoadingStores}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
-              <option value="">-- Choose a store --</option>
-              {stores.map((store, index) => (
-                <option key={index} value={store.storeAbbreviation}>
-                  {store.storeName} ({store.storeAbbreviation})
+              <option value="">
+                {isLoadingStores
+                  ? "Loading stores..."
+                  : storeError
+                  ? "Error loading stores"
+                  : "-- Choose a store --"}
+              </option>
+              {stores.map((store) => (
+                <option key={store.id} value={store.id}>
+                  {store.name} ({store.abbreviation})
                 </option>
               ))}
             </select>

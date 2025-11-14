@@ -1,5 +1,14 @@
 import { createClient } from "@/lib/supabase-client";
-import { Store } from "@/types";
+import {
+  Store,
+  FormatWorkingHoursResponse,
+  GetFormattedWorkingHoursResponse,
+  FormatTipDataResponse,
+  GetFormattedTipDataResponse,
+  FormatCashTipResponse,
+  GetFormattedCashTipResponse,
+} from "@/types";
+import { getErrorMessage } from "@/lib/is-api-error";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
@@ -30,10 +39,13 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    const errorData = await response
-      .json()
-      .catch(() => ({ message: response.statusText }));
-    throw new Error(errorData.message || "An API error occurred.");
+    let errorData: unknown;
+    try {
+      errorData = await response.json();
+    } catch {
+      errorData = { message: response.statusText };
+    }
+    throw new Error(getErrorMessage(errorData, "An API error occurred."));
   }
 
   return response.json();
@@ -54,5 +66,60 @@ export const api = {
       });
     },
   },
-  // Add other API categories here as needed
+  tips: {
+    formatWorkingHours: (
+      storesId: string,
+      csvData: string[]
+    ): Promise<FormatWorkingHoursResponse> => {
+      return apiRequest<FormatWorkingHoursResponse>(
+        "/api/tips/format-working-hours",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            stores_id: storesId,
+            csvData: csvData,
+          }),
+        }
+      );
+    },
+    getFormattedWorkingHours: (): Promise<GetFormattedWorkingHoursResponse> => {
+      return apiRequest<GetFormattedWorkingHoursResponse>(
+        "/api/tips/formatted-working-hours"
+      );
+    },
+    formatTipData: (
+      storesId: string,
+      csvData: string[]
+    ): Promise<FormatTipDataResponse> => {
+      return apiRequest<FormatTipDataResponse>("/api/tips/format-tip-data", {
+        method: "POST",
+        body: JSON.stringify({
+          stores_id: storesId,
+          csvData: csvData,
+        }),
+      });
+    },
+    getFormattedTipData: (): Promise<GetFormattedTipDataResponse> => {
+      return apiRequest<GetFormattedTipDataResponse>(
+        "/api/tips/formatted-tip-data"
+      );
+    },
+    formatCashTip: (
+      storesId: string,
+      data: Array<{ Date: string; "Cash Tips": string }>
+    ): Promise<FormatCashTipResponse> => {
+      return apiRequest<FormatCashTipResponse>("/api/tips/format-cash-tip", {
+        method: "POST",
+        body: JSON.stringify({
+          stores_id: storesId,
+          data: data,
+        }),
+      });
+    },
+    getFormattedCashTip: (): Promise<GetFormattedCashTipResponse> => {
+      return apiRequest<GetFormattedCashTipResponse>(
+        "/api/tips/formatted-cash-tip"
+      );
+    },
+  },
 };
