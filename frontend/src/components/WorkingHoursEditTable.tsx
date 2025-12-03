@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { FormattedWorkingHours } from "@/types";
 
 interface WorkingHoursRecord {
@@ -118,15 +118,22 @@ export function WorkingHoursEditTable({
     >
   >({});
 
-  // データが変更されたらローカル状態を更新
+  // 編集モードの切り替えを追跡
+  const prevIsEditingRef = useRef(isEditing);
+
+  // 編集モードの切り替え時のみローカル状態を更新
   useEffect(() => {
-    setLocalCompleteRecords(completeRecords);
-    setLocalIncompleteRecords(incompleteRecords);
-    // 編集モードがオフになったら、編集中の入力値もクリア
-    if (!isEditing) {
+    if (isEditing && !prevIsEditingRef.current) {
+      // 編集モードに入った時のみ、最新のdataでローカル状態を初期化
+      setLocalCompleteRecords(completeRecords);
+      setLocalIncompleteRecords(incompleteRecords);
+    } else if (!isEditing && prevIsEditingRef.current) {
+      // 編集モードを抜けた時、編集中の入力値をクリア
       setEditingInputValues({});
     }
-  }, [completeRecords, incompleteRecords, isEditing]);
+    prevIsEditingRef.current = isEditing;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing]);
 
   // セルの値を更新する関数
   const handleCellChange = (
@@ -215,6 +222,14 @@ export function WorkingHoursEditTable({
       });
     }
   };
+
+  // 編集中はローカル状態を使用、そうでなければuseMemoの結果を使用
+  const displayCompleteRecords = isEditing
+    ? localCompleteRecords
+    : completeRecords;
+  const displayIncompleteRecords = isEditing
+    ? localIncompleteRecords
+    : incompleteRecords;
 
   // テーブル行をレンダリングする関数
   const renderTableRow = (
@@ -382,7 +397,7 @@ export function WorkingHoursEditTable({
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {localCompleteRecords.length === 0 ? (
+              {displayCompleteRecords.length === 0 ? (
                 <tr>
                   <td
                     colSpan={5}
@@ -392,7 +407,7 @@ export function WorkingHoursEditTable({
                   </td>
                 </tr>
               ) : (
-                localCompleteRecords.map((record, index) =>
+                displayCompleteRecords.map((record, index) =>
                   renderTableRow(record, index, true)
                 )
               )}
@@ -428,7 +443,7 @@ export function WorkingHoursEditTable({
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {localIncompleteRecords.length === 0 ? (
+              {displayIncompleteRecords.length === 0 ? (
                 <tr>
                   <td
                     colSpan={5}
@@ -438,7 +453,7 @@ export function WorkingHoursEditTable({
                   </td>
                 </tr>
               ) : (
-                localIncompleteRecords.map((record, index) =>
+                displayIncompleteRecords.map((record, index) =>
                   renderTableRow(record, index, false)
                 )
               )}
