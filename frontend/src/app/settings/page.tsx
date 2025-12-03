@@ -1124,7 +1124,6 @@ export default function SettingsPage() {
           onClose={() => setIsInviteCodeModalOpen(false)}
           code={generatedInviteCode}
           expiresAt={inviteCodeExpiresAt}
-          storeName={selectedStoreForInvite?.name || ""}
         />
       </div>
     </div>
