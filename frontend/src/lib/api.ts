@@ -1,6 +1,9 @@
 import { createClient } from "@/lib/supabase-client";
 import {
   Store,
+  RoleMapping,
+  RolePercentage,
+  TipPoolPattern,
   FormatWorkingHoursResponse,
   GetFormattedWorkingHoursResponse,
   FormatTipDataResponse,
@@ -90,6 +93,74 @@ export const api = {
       return apiRequest<{ store: Store }>("/api/stores/join", {
         method: "POST",
         body: JSON.stringify({ code }),
+      });
+    },
+  },
+  roleMappings: {
+    getRoleMappings: (storeId: string): Promise<RoleMapping[]> => {
+      return apiRequest<RoleMapping[]>(`/api/role-mappings?storeId=${storeId}`);
+    },
+    addRoleMapping: (data: {
+      storeId: string;
+      roleName: string;
+      actualRoleName?: string;
+      traineeRoleName?: string;
+      traineePercentage?: number;
+    }): Promise<RoleMapping> => {
+      return apiRequest<RoleMapping>("/api/role-mappings", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+    },
+    updateRoleMapping: (
+      id: string,
+      data: {
+        roleName: string;
+        actualRoleName?: string;
+        traineeRoleName?: string;
+        traineePercentage?: number;
+      }
+    ): Promise<RoleMapping> => {
+      return apiRequest<RoleMapping>(`/api/role-mappings/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      });
+    },
+    deleteRoleMapping: (id: string): Promise<{ message: string }> => {
+      return apiRequest<{ message: string }>(`/api/role-mappings/${id}`, {
+        method: "DELETE",
+      });
+    },
+  },
+  tipPool: {
+    getTipPool: (storeId: string): Promise<RolePercentage[]> => {
+      return apiRequest<RolePercentage[]>(`/api/tip-pool?storeId=${storeId}`);
+    },
+    addRole: (
+      storeId: string,
+      roleMappingId: string
+    ): Promise<{ message: string }> => {
+      return apiRequest<{ message: string }>("/api/tip-pool/add-role", {
+        method: "POST",
+        body: JSON.stringify({ storeId, roleMappingId }),
+      });
+    },
+    removeRole: (
+      storeId: string,
+      roleMappingId: string
+    ): Promise<{ message: string }> => {
+      return apiRequest<{ message: string }>("/api/tip-pool/remove-role", {
+        method: "DELETE",
+        body: JSON.stringify({ storeId, roleMappingId }),
+      });
+    },
+    updateTipPool: (
+      storeId: string,
+      patterns: TipPoolPattern[]
+    ): Promise<{ message: string }> => {
+      return apiRequest<{ message: string }>("/api/tip-pool", {
+        method: "PUT",
+        body: JSON.stringify({ storeId, patterns }),
       });
     },
   },

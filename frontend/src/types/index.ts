@@ -17,10 +17,32 @@ export interface StoreInvitation {
 }
 
 export interface RoleMapping {
-  standardRoleGroup: string;
-  actualRoleName: string;
-  traineeActualRoleName: string;
-  traineePercentage: number;
+  id: string;
+  role_name: string; // Standard Role Group (FRONT, BACK, FLOATER)
+  actual_role_name: string | null; // Actual role name in CSV (FOH, BOH)
+  trainee_role_name: string | null; // Trainee role name in CSV (F_TRAINEE)
+  trainee_percentage: number | null; // Trainee percentage (0-100)
+  store_id: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RolePercentage {
+  id: string;
+  role_mapping_id: string;
+  percentage: number;
+  distribution_grouping: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TipPoolPattern {
+  distribution_grouping: number;
+  percentages: {
+    role_mapping_id: string;
+    role_name: string;
+    percentage: number;
+  }[];
 }
 
 export interface FormattedWorkingHours {
