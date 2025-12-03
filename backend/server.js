@@ -1254,6 +1254,737 @@ app.get("/api/tips/formatted-cash-tip", authMiddleware, async (req, res) => {
   }
 });
 
+// ==================== Role Mapping API ====================
+
+// Get role mappings for a store
+app.get("/api/role-mappings", authMiddleware, async (req, res) => {
+  try {
+    const { storeId } = req.query;
+
+    if (!storeId) {
+      return res.status(400).json({ error: "storeId is required" });
+    }
+
+    // Verify user has access to this store
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res
+        .status(404)
+        .json({ error: "Store not found or access denied" });
+    }
+
+    // Get role mappings
+    const { data: roleMappings, error } = await supabase
+      .from("role_mappings")
+      .select("*")
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Supabase select role_mappings error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.status(200).json(roleMappings || []);
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// Add new role mapping
+app.post("/api/role-mappings", authMiddleware, async (req, res) => {
+  try {
+    const {
+      storeId,
+      roleName,
+      actualRoleName,
+      traineeRoleName,
+      traineePercentage,
+    } = req.body;
+
+    if (!storeId || !roleName) {
+      return res
+        .status(400)
+        .json({ error: "storeId and roleName are required" });
+    }
+
+    // Verify user has access to this store
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res
+        .status(404)
+        .json({ error: "Store not found or access denied" });
+    }
+
+    // Check for duplicate role_name (Standard Role Group)
+    const { data: existingByRoleName } = await supabase
+      .from("role_mappings")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("role_name", roleName)
+      .maybeSingle();
+
+    if (existingByRoleName) {
+      return res.status(400).json({
+        error: `Standard Role Group "${roleName}" already exists.`,
+      });
+    }
+
+    // Check for duplicate actual_role_name (if provided)
+    if (actualRoleName) {
+      const { data: existingByActualName } = await supabase
+        .from("role_mappings")
+        .select("*")
+        .eq("store_id", storeId)
+        .eq("actual_role_name", actualRoleName)
+        .maybeSingle();
+
+      if (existingByActualName) {
+        return res.status(400).json({
+          error: `Actual Role Name "${actualRoleName}" already exists.`,
+        });
+      }
+    }
+
+    // Check for duplicate trainee_role_name (if provided)
+    if (traineeRoleName) {
+      const { data: existingByTraineeName } = await supabase
+        .from("role_mappings")
+        .select("*")
+        .eq("store_id", storeId)
+        .eq("trainee_role_name", traineeRoleName)
+        .maybeSingle();
+
+      if (existingByTraineeName) {
+        return res.status(400).json({
+          error: `Trainee Actual Role Name "${traineeRoleName}" already exists.`,
+        });
+      }
+    }
+
+    // Insert new role mapping
+    const { data: newRoleMapping, error } = await supabase
+      .from("role_mappings")
+      .insert([
+        {
+          store_id: storeId,
+          role_name: roleName,
+          actual_role_name: actualRoleName || null,
+          trainee_role_name: traineeRoleName || null,
+          trainee_percentage: traineePercentage || null,
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Supabase insert role_mappings error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.status(201).json(newRoleMapping);
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// Update role mapping
+app.put("/api/role-mappings/:id", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { roleName, actualRoleName, traineeRoleName, traineePercentage } =
+      req.body;
+
+    // Get existing role mapping
+    const { data: existingRoleMapping, error: fetchError } = await supabase
+      .from("role_mappings")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !existingRoleMapping) {
+      return res.status(404).json({ error: "Role mapping not found" });
+    }
+
+    // Verify user has access to this store
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("*")
+      .eq("store_id", existingRoleMapping.store_id)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    // Update role mapping
+    const { data: updatedRoleMapping, error } = await supabase
+      .from("role_mappings")
+      .update({
+        role_name: roleName,
+        actual_role_name: actualRoleName || null,
+        trainee_role_name: traineeRoleName || null,
+        trainee_percentage: traineePercentage || null,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Supabase update role_mappings error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.status(200).json(updatedRoleMapping);
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// Delete role mapping
+app.delete("/api/role-mappings/:id", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get existing role mapping
+    const { data: existingRoleMapping, error: fetchError } = await supabase
+      .from("role_mappings")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !existingRoleMapping) {
+      return res.status(404).json({ error: "Role mapping not found" });
+    }
+
+    // Verify user has access to this store
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("*")
+      .eq("store_id", existingRoleMapping.store_id)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    // Check if role is used in tip pool
+    const { data: rolePercentages, error: rolePercentageError } = await supabase
+      .from("role_percentage")
+      .select("id")
+      .eq("role_mapping_id", id);
+
+    if (rolePercentageError) {
+      console.error(
+        "Supabase select role_percentage error:",
+        rolePercentageError
+      );
+      return res.status(500).json({ error: rolePercentageError.message });
+    }
+
+    if (rolePercentages && rolePercentages.length > 0) {
+      return res.status(400).json({
+        error: "Cannot delete. This role is used in Tip Pool Distribution.",
+      });
+    }
+
+    // Delete role mapping
+    const { error } = await supabase
+      .from("role_mappings")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Supabase delete role_mappings error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.status(200).json({ message: "Role mapping deleted successfully" });
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// ==================== Tip Pool Distribution API ====================
+
+// Get tip pool distribution for a store
+app.get("/api/tip-pool", authMiddleware, async (req, res) => {
+  try {
+    const { storeId } = req.query;
+
+    if (!storeId) {
+      return res.status(400).json({ error: "storeId is required" });
+    }
+
+    // Verify user has access to this store
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res
+        .status(404)
+        .json({ error: "Store not found or access denied" });
+    }
+
+    // Get role percentages with role mappings
+    const { data: rolePercentages, error } = await supabase
+      .from("role_percentage")
+      .select("*, role_mappings!inner(*)")
+      .eq("role_mappings.store_id", storeId)
+      .order("distribution_grouping", { ascending: true });
+
+    if (error) {
+      console.error("Supabase select role_percentage error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.status(200).json(rolePercentages || []);
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// Add role to tip pool
+app.post("/api/tip-pool/add-role", authMiddleware, async (req, res) => {
+  try {
+    const { storeId, roleMappingId } = req.body;
+
+    if (!storeId || !roleMappingId) {
+      return res
+        .status(400)
+        .json({ error: "storeId and roleMappingId are required" });
+    }
+
+    // Verify user has access to this store
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res
+        .status(404)
+        .json({ error: "Store not found or access denied" });
+    }
+
+    // Verify role mapping exists and belongs to this store
+    const { data: roleMapping, error: roleMappingError } = await supabase
+      .from("role_mappings")
+      .select("*")
+      .eq("id", roleMappingId)
+      .eq("store_id", storeId)
+      .single();
+
+    if (roleMappingError || !roleMapping) {
+      return res.status(404).json({ error: "Role mapping not found" });
+    }
+
+    // Check if role is already in tip pool
+    const { data: existingRolePercentage } = await supabase
+      .from("role_percentage")
+      .select("id")
+      .eq("role_mapping_id", roleMappingId)
+      .limit(1);
+
+    if (existingRolePercentage && existingRolePercentage.length > 0) {
+      return res.status(400).json({ error: "Role is already in tip pool" });
+    }
+
+    // Get all role mappings currently in tip pool for this store
+    const { data: currentRoleMappingsInPool } = await supabase
+      .from("role_percentage")
+      .select("role_mapping_id, role_mappings!inner(store_id)")
+      .eq("role_mappings.store_id", storeId);
+
+    const uniqueRoleMappingIds = [
+      ...new Set(currentRoleMappingsInPool.map((rp) => rp.role_mapping_id)),
+    ];
+
+    // Get existing distribution groups
+    const { data: existingGroups } = await supabase
+      .from("role_percentage")
+      .select(
+        "distribution_grouping, role_mapping_id, percentage, role_mappings!inner(store_id)"
+      )
+      .eq("role_mappings.store_id", storeId)
+      .order("distribution_grouping", { ascending: true });
+
+    // Group by distribution_grouping
+    const groupedPatterns = {};
+    if (existingGroups) {
+      existingGroups.forEach((rp) => {
+        if (!groupedPatterns[rp.distribution_grouping]) {
+          groupedPatterns[rp.distribution_grouping] = {};
+        }
+        groupedPatterns[rp.distribution_grouping][rp.role_mapping_id] =
+          rp.percentage;
+      });
+    }
+
+    // Add new role with percentage=0 to existing groups
+    const newRecords = [];
+    Object.keys(groupedPatterns).forEach((groupNum) => {
+      newRecords.push({
+        role_mapping_id: roleMappingId,
+        percentage: 0,
+        distribution_grouping: parseInt(groupNum),
+      });
+    });
+
+    // Generate new patterns with the new role
+    const allRoleMappingIds = [...uniqueRoleMappingIds, roleMappingId];
+    const n = allRoleMappingIds.length;
+
+    // Generate all possible patterns (2^n - 1)
+    const newPatterns = [];
+    for (let i = 1; i < Math.pow(2, n); i++) {
+      const pattern = {};
+      let hasNonZero = false;
+
+      for (let j = 0; j < n; j++) {
+        if ((i & (1 << j)) !== 0) {
+          pattern[allRoleMappingIds[j]] = -1; // Placeholder for non-zero
+          hasNonZero = true;
+        } else {
+          pattern[allRoleMappingIds[j]] = 0;
+        }
+      }
+
+      if (hasNonZero) {
+        newPatterns.push(pattern);
+      }
+    }
+
+    // Check if pattern already exists in existing groups
+    const newUniquePatterns = newPatterns.filter((newPattern) => {
+      return !Object.values(groupedPatterns).some((existingPattern) => {
+        return allRoleMappingIds.every((rmId) => {
+          const newVal = newPattern[rmId];
+          const existingVal = existingPattern[rmId] || 0;
+
+          if (newVal === 0 && existingVal === 0) return true;
+          if (newVal === -1 && existingVal > 0) return true;
+          return false;
+        });
+      });
+    });
+
+    // Assign actual percentages to new patterns
+    // For patterns with only one role > 0, set to 100
+    // For patterns with multiple roles > 0, set default values
+    newUniquePatterns.forEach((pattern) => {
+      const nonZeroRoles = Object.entries(pattern).filter(
+        ([_, val]) => val === -1
+      );
+      if (nonZeroRoles.length === 1) {
+        pattern[nonZeroRoles[0][0]] = 100;
+      } else {
+        // Default: distribute equally
+        const equalShare = Math.floor(100 / nonZeroRoles.length);
+        let remainder = 100 - equalShare * nonZeroRoles.length;
+        nonZeroRoles.forEach(([rmId], index) => {
+          pattern[rmId] = equalShare + (index === 0 ? remainder : 0);
+        });
+      }
+    });
+
+    // Create new records for new unique patterns
+    const maxGroup = Math.max(
+      ...Object.keys(groupedPatterns).map((g) => parseInt(g)),
+      0
+    );
+    newUniquePatterns.forEach((pattern, index) => {
+      const groupNum = maxGroup + index + 1;
+      allRoleMappingIds.forEach((rmId) => {
+        newRecords.push({
+          role_mapping_id: rmId,
+          percentage: pattern[rmId],
+          distribution_grouping: groupNum,
+        });
+      });
+    });
+
+    // Insert all new records
+    if (newRecords.length > 0) {
+      const { error: insertError } = await supabase
+        .from("role_percentage")
+        .insert(newRecords);
+
+      if (insertError) {
+        console.error("Supabase insert role_percentage error:", insertError);
+        return res.status(500).json({ error: insertError.message });
+      }
+    }
+
+    // Renumber distribution_grouping to be sequential
+    await renumberDistributionGrouping(storeId);
+
+    res.status(201).json({ message: "Role added to tip pool successfully" });
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// Remove role from tip pool
+app.delete("/api/tip-pool/remove-role", authMiddleware, async (req, res) => {
+  try {
+    const { storeId, roleMappingId } = req.body;
+
+    if (!storeId || !roleMappingId) {
+      return res
+        .status(400)
+        .json({ error: "storeId and roleMappingId are required" });
+    }
+
+    // Verify user has access to this store
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res
+        .status(404)
+        .json({ error: "Store not found or access denied" });
+    }
+
+    // Get groups where this role has percentage > 0
+    const { data: rolePercentages, error: fetchError } = await supabase
+      .from("role_percentage")
+      .select(
+        "distribution_grouping, percentage, role_mappings!inner(store_id)"
+      )
+      .eq("role_mapping_id", roleMappingId)
+      .eq("role_mappings.store_id", storeId);
+
+    if (fetchError) {
+      console.error("Supabase select role_percentage error:", fetchError);
+      return res.status(500).json({ error: fetchError.message });
+    }
+
+    if (!rolePercentages || rolePercentages.length === 0) {
+      return res.status(404).json({ error: "Role not found in tip pool" });
+    }
+
+    // Identify groups to delete completely (where role percentage > 0)
+    const groupsToDelete = rolePercentages
+      .filter((rp) => rp.percentage > 0)
+      .map((rp) => rp.distribution_grouping);
+
+    // Delete all records in those groups
+    if (groupsToDelete.length > 0) {
+      // First, get all role_mapping_ids for this store
+      const { data: roleMappingsInStore, error: rmError } = await supabase
+        .from("role_mappings")
+        .select("id")
+        .eq("store_id", storeId);
+
+      if (rmError) {
+        console.error("Supabase select role_mappings error:", rmError);
+        return res.status(500).json({ error: rmError.message });
+      }
+
+      const roleMappingIds = roleMappingsInStore.map((rm) => rm.id);
+
+      // Delete all records in those groups for all roles in this store
+      const { error: deleteGroupsError } = await supabase
+        .from("role_percentage")
+        .delete()
+        .in("distribution_grouping", groupsToDelete)
+        .in("role_mapping_id", roleMappingIds);
+
+      if (deleteGroupsError) {
+        console.error(
+          "Supabase delete role_percentage groups error:",
+          deleteGroupsError
+        );
+        return res.status(500).json({ error: deleteGroupsError.message });
+      }
+    }
+
+    // Delete all records for this role (including percentage = 0)
+    const { error: deleteRoleError } = await supabase
+      .from("role_percentage")
+      .delete()
+      .eq("role_mapping_id", roleMappingId);
+
+    if (deleteRoleError) {
+      console.error("Supabase delete role_percentage error:", deleteRoleError);
+      return res.status(500).json({ error: deleteRoleError.message });
+    }
+
+    // Renumber distribution_grouping to be sequential
+    await renumberDistributionGrouping(storeId);
+
+    res
+      .status(200)
+      .json({ message: "Role removed from tip pool successfully" });
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// Update tip pool distribution
+app.put("/api/tip-pool", authMiddleware, async (req, res) => {
+  try {
+    const { storeId, patterns } = req.body;
+
+    if (!storeId || !patterns || !Array.isArray(patterns)) {
+      return res
+        .status(400)
+        .json({ error: "storeId and patterns array are required" });
+    }
+
+    // Verify user has access to this store
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("*")
+      .eq("store_id", storeId)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res
+        .status(404)
+        .json({ error: "Store not found or access denied" });
+    }
+
+    // Validate patterns
+    for (const pattern of patterns) {
+      const total = pattern.percentages.reduce(
+        (sum, p) => sum + p.percentage,
+        0
+      );
+      if (total !== 100) {
+        return res.status(400).json({
+          error: `Total percentage must be 100% for pattern ${pattern.distribution_grouping}`,
+        });
+      }
+    }
+
+    // Check for duplicate patterns
+    const patternSignatures = patterns.map((pattern) => {
+      const sorted = pattern.percentages
+        .map((p) => `${p.role_mapping_id}:${p.percentage}`)
+        .sort()
+        .join(",");
+      return sorted;
+    });
+
+    const uniqueSignatures = new Set(patternSignatures);
+    if (uniqueSignatures.size !== patternSignatures.length) {
+      return res
+        .status(400)
+        .json({ error: "Duplicate patterns are not allowed" });
+    }
+
+    // Update percentages
+    for (const pattern of patterns) {
+      for (const { role_mapping_id, percentage } of pattern.percentages) {
+        const { error: updateError } = await supabase
+          .from("role_percentage")
+          .update({ percentage })
+          .eq("role_mapping_id", role_mapping_id)
+          .eq("distribution_grouping", pattern.distribution_grouping);
+
+        if (updateError) {
+          console.error("Supabase update role_percentage error:", updateError);
+          return res.status(500).json({ error: updateError.message });
+        }
+      }
+    }
+
+    res
+      .status(200)
+      .json({ message: "Tip pool distribution updated successfully" });
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// Helper function to renumber distribution_grouping sequentially
+async function renumberDistributionGrouping(storeId) {
+  try {
+    // Get all distinct distribution_grouping values for this store
+    const { data: allGroups } = await supabase
+      .from("role_percentage")
+      .select("distribution_grouping, role_mappings!inner(store_id)")
+      .eq("role_mappings.store_id", storeId)
+      .order("distribution_grouping", { ascending: true });
+
+    if (!allGroups || allGroups.length === 0) return;
+
+    const uniqueGroups = [
+      ...new Set(allGroups.map((g) => g.distribution_grouping)),
+    ];
+
+    // Create mapping from old to new group numbers
+    const groupMapping = {};
+    uniqueGroups.forEach((oldGroup, index) => {
+      groupMapping[oldGroup] = index + 1;
+    });
+
+    // Update in batches by old group number
+    for (const [oldGroup, newGroup] of Object.entries(groupMapping)) {
+      if (parseInt(oldGroup) === newGroup) continue; // Skip if already correct
+
+      // Get all role_mapping_ids for this store
+      const { data: storeRoleMappings } = await supabase
+        .from("role_mappings")
+        .select("id")
+        .eq("store_id", storeId);
+
+      const roleMappingIds = storeRoleMappings.map((rm) => rm.id);
+
+      // Update all records with this distribution_grouping and store's role_mapping_ids
+      const { error: updateError } = await supabase
+        .from("role_percentage")
+        .update({ distribution_grouping: newGroup })
+        .eq("distribution_grouping", parseInt(oldGroup))
+        .in("role_mapping_id", roleMappingIds);
+
+      if (updateError) {
+        console.error(
+          "Supabase update distribution_grouping error:",
+          updateError
+        );
+      }
+    }
+  } catch (err) {
+    console.error("Renumber distribution_grouping error:", err);
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });

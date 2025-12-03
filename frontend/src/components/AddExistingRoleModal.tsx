@@ -8,7 +8,7 @@ interface AddExistingRoleModalProps {
   onClose: () => void;
   selectedRole: string;
   onSelectedRoleChange: (value: string) => void;
-  availableRoles: string[];
+  availableRoles: { id: string; name: string }[];
   onSave: () => void;
 }
 
@@ -48,9 +48,9 @@ export function AddExistingRoleModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">-- Choose a role --</option>
-              {availableRoles.map((role, index) => (
-                <option key={index} value={role}>
-                  {role}
+              {availableRoles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
                 </option>
               ))}
             </select>
