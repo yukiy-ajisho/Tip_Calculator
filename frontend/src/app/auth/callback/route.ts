@@ -33,11 +33,6 @@ export async function GET(request: NextRequest) {
         }
       );
 
-      // Debug logs
-      console.log("=== AUTH CALLBACK ===");
-      console.log("Code:", code);
-      console.log("Request URL:", requestUrl.toString());
-
       // Exchange code for session
       const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
@@ -47,8 +42,6 @@ export async function GET(request: NextRequest) {
           `${requestUrl.origin}/login?error=auth_failed`
         );
       }
-
-      console.log("Exchange success");
 
       // Verify session
       const {
@@ -62,8 +55,6 @@ export async function GET(request: NextRequest) {
           `${requestUrl.origin}/login?error=session_failed`
         );
       }
-
-      console.log("Session verified:", session.user?.email);
 
       // URL to redirect to after sign in process completes
       return NextResponse.redirect(new URL("/tip", requestUrl.origin));

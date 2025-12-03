@@ -2,67 +2,102 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
-const jwt = require("jsonwebtoken"); // jsonwebtokenをインポート
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Supabaseクライアントの初期化
+// Supabaseクライアントの初期化（Service Role Key - データベース操作用）
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-// Supabase JWT Secretを環境変数から取得
-const jwtSecret = process.env.SUPABASE_JWT_SECRET; // .env に追加する必要あり
+// CORS設定（本番環境ではFRONTEND_URLを設定）
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || "*",
+  credentials: true,
+};
 
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
-// JWT検証ミドルウェア（ベストプラクティス版）
-app.use(async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res
-      .status(401)
-      .json({ error: "Unauthorized: No token provided or invalid format" });
-  }
-
-  const token = authHeader.split(" ")[1];
-
-  try {
-    // JWTを直接検証
-    const decoded = jwt.verify(token, jwtSecret);
-
-    // デコードされたトークンからユーザーIDを取得
-    // SupabaseのJWTは通常 'sub' クレームにuser_idが入っている
-    // req.userにユーザーIDをセット
-    req.user = { id: decoded.sub };
-
-    next();
-  } catch (err) {
-    console.error("JWT verification error:", err);
-    return res
-      .status(401)
-      .json({ error: "Unauthorized: Invalid or expired token" });
-  }
+// ExpressのRequest型を拡張してuser情報を追加
+app.use((req, res, next) => {
+  req.user = undefined;
+  next();
 });
 
-// テスト用のAPIエンドポイント
+// 認証ミドルウェア関数
+// Authorizationヘッダーからトークンを取得し、Supabaseで検証
+async function authMiddleware(req, res, next) {
+  try {
+    // Authorizationヘッダーからトークンを取得
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res
+        .status(401)
+        .json({ error: "Missing or invalid authorization header" });
+    }
+
+    const token = authHeader.substring(7); // "Bearer "を除去
+
+    // トークンが空文字列の場合はエラー
+    if (!token || token.trim() === "") {
+      return res
+        .status(401)
+        .json({ error: "Missing or invalid authorization header" });
+    }
+
+    // Supabaseクライアントを作成（ANON_KEYを使用してトークンを検証）
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+      return res.status(500).json({ error: "Server configuration error" });
+    }
+
+    const supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_ANON_KEY,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
+
+    // トークンを検証してユーザー情報を取得
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+
+    // リクエストオブジェクトにユーザー情報を追加
+    req.user = {
+      id: user.id,
+    };
+
+    next();
+  } catch (error) {
+    console.error("Auth middleware error:", error);
+    return res.status(500).json({ error: "Authentication failed" });
+  }
+}
+
+// ルート
+// ヘルスチェックエンドポイント（認証不要）
 app.get("/api/test", (req, res) => {
   res.json({ message: "Backend is working!" });
 });
 
+// 認証が必要なルート
 // ユーザーに紐づくストア一覧取得用APIエンドポイント
-app.get("/api/stores", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized: No user session" });
-  }
-
+app.get("/api/stores", authMiddleware, async (req, res) => {
   try {
     const { data: stores, error } = await supabase
       .from("store_users")
-      .select("stores(*)") // store_usersテーブルを介してstoresテーブルの全カラムを取得
+      .select("stores(*), role") // store_usersテーブルを介してstoresテーブルの全カラムとroleを取得
       .eq("user_id", req.user.id);
 
     if (error) {
@@ -70,8 +105,11 @@ app.get("/api/stores", async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
-    // 取得したデータは { stores: { id, name, abbreviation } } の形になっているので整形
-    const formattedStores = stores.map((su) => su.stores);
+    // 取得したデータは { stores: { id, name, abbreviation }, role: 'owner'|'manager' } の形になっているので整形
+    const formattedStores = stores.map((su) => ({
+      ...su.stores,
+      role: su.role, // role情報を追加
+    }));
 
     res.status(200).json(formattedStores);
   } catch (err) {
@@ -81,10 +119,7 @@ app.get("/api/stores", async (req, res) => {
 });
 
 // ストア追加用APIエンドポイント
-app.post("/api/stores", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized: No user session" });
-  }
+app.post("/api/stores", authMiddleware, async (req, res) => {
   const { storeName, storeAbbreviation } = req.body;
 
   if (!storeName || !storeAbbreviation) {
@@ -107,10 +142,10 @@ app.post("/api/stores", async (req, res) => {
 
     const newStore = newStoreData[0];
 
-    // 2. store_usersテーブルにユーザーとストアの関連を挿入
+    // 2. store_usersテーブルにユーザーとストアの関連を挿入（role='owner'）
     const { error: storeUserError } = await supabase
       .from("store_users")
-      .insert([{ store_id: newStore.id, user_id: req.user.id }]);
+      .insert([{ store_id: newStore.id, user_id: req.user.id, role: "owner" }]);
 
     if (storeUserError) {
       console.error("Supabase insert store_user error:", storeUserError);
@@ -120,6 +155,222 @@ app.post("/api/stores", async (req, res) => {
     res
       .status(201)
       .json({ message: "Store added successfully!", data: newStore });
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// 招待コード発行用APIエンドポイント
+app.post("/api/stores/:storeId/invite", authMiddleware, async (req, res) => {
+  const { storeId } = req.params;
+
+  try {
+    // 1. ユーザーがそのストアのオーナーか確認
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("role")
+      .eq("store_id", storeId)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res
+        .status(404)
+        .json({ error: "Store not found or access denied" });
+    }
+
+    if (storeUser.role !== "owner") {
+      return res
+        .status(403)
+        .json({ error: "Only owners can generate invitation codes" });
+    }
+
+    // 2. ランダムなコードを生成（12文字の英数字）
+    const generateCode = () => {
+      const chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+      let code = "";
+      for (let i = 0; i < 12; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return code;
+    };
+
+    let code;
+    let isUnique = false;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    // ユニークなコードを生成（最大10回試行）
+    while (!isUnique && attempts < maxAttempts) {
+      code = generateCode();
+      const { data: existing } = await supabase
+        .from("store_invitations")
+        .select("id")
+        .eq("code", code)
+        .single();
+
+      if (!existing) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+
+    if (!isUnique) {
+      return res
+        .status(500)
+        .json({ error: "Failed to generate unique code. Please try again." });
+    }
+
+    // 3. 有効期限を設定（2分後）
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 2);
+
+    // 4. store_invitationsテーブルに保存
+    const { data: invitation, error: inviteError } = await supabase
+      .from("store_invitations")
+      .insert([
+        {
+          store_id: storeId,
+          code: code,
+          created_by: req.user.id,
+          expires_at: expiresAt.toISOString(),
+        },
+      ])
+      .select()
+      .single();
+
+    if (inviteError) {
+      console.error("Supabase insert invitation error:", inviteError);
+      return res.status(500).json({ error: inviteError.message });
+    }
+
+    res.status(201).json({
+      message: "Invitation code generated successfully",
+      code: code,
+      expiresAt: expiresAt.toISOString(),
+    });
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// 招待コード検証・参加用APIエンドポイント
+app.post("/api/stores/join", authMiddleware, async (req, res) => {
+  const { code } = req.body;
+
+  if (!code) {
+    return res.status(400).json({ error: "Invitation code is required" });
+  }
+
+  try {
+    const now = new Date();
+
+    // 1. コードが存在し、有効期限内で未使用か確認（条件付きUPDATEで競合を防止）
+    // このUPDATEは、used_at IS NULL AND expires_at >= NOW() の場合のみ成功する
+    const { data: updatedInvitation, error: updateError } = await supabase
+      .from("store_invitations")
+      .update({
+        used_at: now.toISOString(),
+        used_by: req.user.id,
+      })
+      .eq("code", code)
+      .is("used_at", null) // まだ使用されていない場合のみ
+      .gte("expires_at", now.toISOString()) // 有効期限内の場合のみ
+      .select()
+      .single();
+
+    // 2. 更新が失敗した場合（コードが存在しない、既に使用済み、または有効期限切れ）
+    if (updateError || !updatedInvitation) {
+      // コードが存在するか確認（エラーメッセージを適切にするため）
+      const { data: invitation } = await supabase
+        .from("store_invitations")
+        .select("*")
+        .eq("code", code)
+        .single();
+
+      if (!invitation) {
+        return res.status(404).json({ error: "Invalid invitation code" });
+      }
+
+      if (invitation.used_at) {
+        // 使用済みコードは削除
+        await supabase
+          .from("store_invitations")
+          .delete()
+          .eq("id", invitation.id);
+        return res
+          .status(400)
+          .json({ error: "This invitation code has already been used" });
+      }
+
+      // 有効期限切れの場合は削除（自動削除ジョブが実行されていない場合に備えて）
+      if (new Date(invitation.expires_at) < now) {
+        await supabase
+          .from("store_invitations")
+          .delete()
+          .eq("id", invitation.id);
+        return res
+          .status(400)
+          .json({ error: "This invitation code has expired" });
+      }
+
+      // その他の場合（競合など）
+      return res
+        .status(400)
+        .json({ error: "This invitation code has already been used" });
+    }
+
+    // 3. 既にそのストアのメンバーか確認
+    const { data: existingMember } = await supabase
+      .from("store_users")
+      .select("id")
+      .eq("store_id", updatedInvitation.store_id)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (existingMember) {
+      // 既にメンバーの場合、コードを削除（used_atは既に設定されているが削除する）
+      await supabase
+        .from("store_invitations")
+        .delete()
+        .eq("id", updatedInvitation.id);
+      return res
+        .status(400)
+        .json({ error: "You are already a member of this store" });
+    }
+
+    // 4. store_usersテーブルに追加（role='manager'）
+    const { error: storeUserError } = await supabase
+      .from("store_users")
+      .insert([
+        {
+          store_id: updatedInvitation.store_id,
+          user_id: req.user.id,
+          role: "manager",
+        },
+      ]);
+
+    if (storeUserError) {
+      console.error("Supabase insert store_user error:", storeUserError);
+      // store_usersへの追加に失敗した場合、コードを再度有効化する必要はない
+      // （既にused_atが設定されているため）
+      return res.status(500).json({ error: storeUserError.message });
+    }
+
+    // 5. ストア情報を取得して返す
+    const { data: store } = await supabase
+      .from("stores")
+      .select("*")
+      .eq("id", updatedInvitation.store_id)
+      .single();
+
+    res.status(200).json({
+      message: "Successfully joined the store",
+      store: store,
+    });
   } catch (err) {
     console.error("Server error:", err);
     res.status(500).json({ error: "Internal server error." });
@@ -372,6 +623,22 @@ function formatWorkingHoursData(csvData) {
 
     // 従業員名を更新
     currentName = employeeName;
+  }
+
+  // 全レコード生成後、一括してis_complete_on_importを判定
+  for (let i = 0; i < formattedData.length; i++) {
+    const record = formattedData[i];
+
+    // 完全なレコードの判定: name, date, start, end が全て存在
+    const hasName = record.name && record.name.trim() !== "";
+    const hasDate = !!record.date;
+    const hasStart = !!record.start;
+    const hasEnd = !!record.end;
+
+    // !! で明示的にbooleanに変換
+    const isComplete = !!(hasName && hasDate && hasStart && hasEnd);
+
+    formattedData[i].is_complete_on_import = isComplete;
   }
 
   return formattedData;
@@ -644,11 +911,7 @@ function formatTipData(csvData) {
 // ============================================
 
 // POST /api/tips/format-working-hours
-app.post("/api/tips/format-working-hours", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized: No user session" });
-  }
-
+app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
   const { stores_id, csvData } = req.body;
 
   if (!stores_id || !csvData) {
@@ -692,6 +955,7 @@ app.post("/api/tips/format-working-hours", async (req, res) => {
         start: record.start || null,
         end: record.end || null, // "end" is a reserved keyword, so it's quoted
         role: record.role || "",
+        is_complete_on_import: record.is_complete_on_import || false,
       }));
 
       const { error: insertError } = await supabase
@@ -716,66 +980,62 @@ app.post("/api/tips/format-working-hours", async (req, res) => {
 });
 
 // GET /api/tips/formatted-working-hours
-app.get("/api/tips/formatted-working-hours", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized: No user session" });
-  }
+app.get(
+  "/api/tips/formatted-working-hours",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
+      const { data: storeUsers, error: storeUsersError } = await supabase
+        .from("store_users")
+        .select("store_id")
+        .eq("user_id", req.user.id);
 
-  try {
-    // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
-    const { data: storeUsers, error: storeUsersError } = await supabase
-      .from("store_users")
-      .select("store_id")
-      .eq("user_id", req.user.id);
+      if (storeUsersError) {
+        console.error("Supabase select store_users error:", storeUsersError);
+        throw new Error(
+          `Failed to fetch user stores: ${storeUsersError.message}`
+        );
+      }
 
-    if (storeUsersError) {
-      console.error("Supabase select store_users error:", storeUsersError);
-      throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
-      );
-    }
+      if (!storeUsers || storeUsers.length === 0) {
+        // ユーザーが権限を持つ店がない場合は空配列を返す
+        return res.status(200).json({
+          success: true,
+          data: [],
+        });
+      }
 
-    if (!storeUsers || storeUsers.length === 0) {
-      // ユーザーが権限を持つ店がない場合は空配列を返す
-      return res.status(200).json({
+      // 2. ユーザーが権限を持つ店のIDのリストを作成
+      const storeIds = storeUsers.map((su) => su.store_id);
+
+      // 3. その店のIDで formatted_working_hours からデータを取得
+      // データが存在する場合、それは必ず一店舗分のデータセットのみ
+      const { data, error } = await supabase
+        .from("formatted_working_hours")
+        .select("*")
+        .in("stores_id", storeIds)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Supabase select formatted_working_hours error:", error);
+        throw new Error(`Failed to fetch working hours: ${error.message}`);
+      }
+
+      // データが存在しない場合は空配列を返す
+      res.status(200).json({
         success: true,
-        data: [],
+        data: data || [],
       });
+    } catch (error) {
+      console.error("Error fetching formatted working hours:", error);
+      res.status(500).json({ error: error.message });
     }
-
-    // 2. ユーザーが権限を持つ店のIDのリストを作成
-    const storeIds = storeUsers.map((su) => su.store_id);
-
-    // 3. その店のIDで formatted_working_hours からデータを取得
-    // データが存在する場合、それは必ず一店舗分のデータセットのみ
-    const { data, error } = await supabase
-      .from("formatted_working_hours")
-      .select("*")
-      .in("stores_id", storeIds)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Supabase select formatted_working_hours error:", error);
-      throw new Error(`Failed to fetch working hours: ${error.message}`);
-    }
-
-    // データが存在しない場合は空配列を返す
-    res.status(200).json({
-      success: true,
-      data: data || [],
-    });
-  } catch (error) {
-    console.error("Error fetching formatted working hours:", error);
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 // POST /api/tips/format-tip-data
-app.post("/api/tips/format-tip-data", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized: No user session" });
-  }
-
+app.post("/api/tips/format-tip-data", authMiddleware, async (req, res) => {
   const { stores_id, csvData } = req.body;
 
   if (!stores_id || !csvData) {
@@ -818,11 +1078,7 @@ app.post("/api/tips/format-tip-data", async (req, res) => {
 });
 
 // GET /api/tips/formatted-tip-data
-app.get("/api/tips/formatted-tip-data", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized: No user session" });
-  }
-
+app.get("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
   try {
     // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
     const { data: storeUsers, error: storeUsersError } = await supabase
@@ -908,11 +1164,7 @@ function formatCashTipData(data) {
 }
 
 // POST /api/tips/format-cash-tip
-app.post("/api/tips/format-cash-tip", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized: No user session" });
-  }
-
+app.post("/api/tips/format-cash-tip", authMiddleware, async (req, res) => {
   const { stores_id, data } = req.body;
 
   if (!stores_id || !data) {
@@ -952,11 +1204,7 @@ app.post("/api/tips/format-cash-tip", async (req, res) => {
 });
 
 // GET /api/tips/formatted-cash-tip
-app.get("/api/tips/formatted-cash-tip", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized: No user session" });
-  }
-
+app.get("/api/tips/formatted-cash-tip", authMiddleware, async (req, res) => {
   try {
     // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
     const { data: storeUsers, error: storeUsersError } = await supabase

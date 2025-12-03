@@ -2,6 +2,18 @@ export interface Store {
   id: string;
   name: string;
   abbreviation: string;
+  role?: "owner" | "manager"; // ユーザーがそのストアに対して持つ権限
+}
+
+export interface StoreInvitation {
+  id: string;
+  store_id: string;
+  code: string;
+  created_by: string;
+  created_at: string;
+  expires_at: string;
+  used_at: string | null;
+  used_by: string | null;
 }
 
 export interface RoleMapping {
@@ -17,6 +29,7 @@ export interface FormattedWorkingHours {
   start: string;
   end: string;
   role: string;
+  is_complete_on_import: boolean;
 }
 
 export interface FormatWorkingHoursResponse {
