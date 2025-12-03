@@ -5,6 +5,7 @@ import { AddRoleModal } from "@/components/AddRoleModal";
 import { AddStoreModal } from "@/components/AddStoreModal";
 import { AddTraineeModal } from "@/components/AddTraineeModal";
 import { AddExistingRoleModal } from "@/components/AddExistingRoleModal";
+import { InviteCodeModal } from "@/components/InviteCodeModal";
 import { api } from "@/lib/api"; // apiユーティリティをインポート
 import { Store, RoleMapping } from "@/types"; // StoreとRoleMappingインターフェースをインポート
 
@@ -28,6 +29,7 @@ export default function SettingsPage() {
   const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
   const [storeName, setStoreName] = useState("");
   const [storeAbbreviation, setStoreAbbreviation] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [isAddExistingRoleModalOpen, setIsAddExistingRoleModalOpen] =
     useState(false);
   const [selectedExistingRole, setSelectedExistingRole] = useState("");
@@ -35,6 +37,13 @@ export default function SettingsPage() {
   const [editedRoleMappings, setEditedRoleMappings] = useState<RoleMapping[]>(
     []
   );
+  const [isInviteCodeModalOpen, setIsInviteCodeModalOpen] = useState(false);
+  const [inviteCodeData, setInviteCodeData] = useState<{
+    code: string;
+    expiresAt: string;
+  } | null>(null);
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+  const [isJoiningStore, setIsJoiningStore] = useState(false);
 
   // Store Setting関連のステート
   const [storeMappings, setStoreMappings] = useState<Store[]>([]); // Storeインターフェースを使用
@@ -100,11 +109,53 @@ export default function SettingsPage() {
       setIsStoreModalOpen(false);
       setStoreName("");
       setStoreAbbreviation("");
+      setInviteCode("");
     } catch (error: any) {
       console.error("Failed to add store:", error);
       setStoreError(error.message || "Failed to add store.");
     } finally {
       setIsAddingStore(false);
+    }
+  };
+
+  // 招待コードでストアに参加するハンドラ
+  const handleJoinStore = async () => {
+    if (!inviteCode.trim()) {
+      setStoreError("Invitation code is required.");
+      return;
+    }
+    setIsJoiningStore(true);
+    setStoreError(null);
+    try {
+      await api.stores.joinStore(inviteCode.trim());
+      await fetchStores(); // ストア参加後に一覧を再取得
+      setIsStoreModalOpen(false);
+      setStoreName("");
+      setStoreAbbreviation("");
+      setInviteCode("");
+    } catch (error: any) {
+      console.error("Failed to join store:", error);
+      setStoreError(error.message || "Failed to join store.");
+    } finally {
+      setIsJoiningStore(false);
+    }
+  };
+
+  // 招待コードを発行するハンドラ
+  const handleGenerateInviteCode = async (storeId: string) => {
+    setIsGeneratingCode(true);
+    try {
+      const result = await api.stores.generateInviteCode(storeId);
+      setInviteCodeData({
+        code: result.code,
+        expiresAt: result.expiresAt,
+      });
+      setIsInviteCodeModalOpen(true);
+    } catch (error: any) {
+      console.error("Failed to generate invite code:", error);
+      setStoreError(error.message || "Failed to generate invite code.");
+    } finally {
+      setIsGeneratingCode(false);
     }
   };
 
@@ -474,8 +525,14 @@ export default function SettingsPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                       Store Name
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                       Store Abbreviation
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                      Role
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
                     </th>
                   </tr>
                 </thead>
@@ -483,7 +540,7 @@ export default function SettingsPage() {
                   {isLoadingStores ? (
                     <tr>
                       <td
-                        colSpan={2}
+                        colSpan={4}
                         className="px-4 py-3 text-center text-gray-500"
                       >
                         Loading stores...
@@ -492,7 +549,7 @@ export default function SettingsPage() {
                   ) : storeError ? (
                     <tr>
                       <td
-                        colSpan={2}
+                        colSpan={4}
                         className="px-4 py-3 text-center text-red-500"
                       >
                         {storeError}
@@ -501,7 +558,7 @@ export default function SettingsPage() {
                   ) : storeMappings.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={2}
+                        colSpan={4}
                         className="px-4 py-3 text-center text-gray-500"
                       >
                         No stores found. Add one!
@@ -509,12 +566,38 @@ export default function SettingsPage() {
                     </tr>
                   ) : (
                     storeMappings.map((mapping, index) => (
-                      <tr key={index}>
+                      <tr key={mapping.id || index}>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
                           {mapping.name}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
                           {mapping.abbreviation}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              mapping.role === "owner"
+                                ? "bg-blue-100 text-blue-800"
+                                : "bg-gray-100 text-gray-800"
+                            }`}
+                          >
+                            {mapping.role === "owner" ? "Owner" : "Manager"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                          {mapping.role === "owner" && (
+                            <button
+                              onClick={() =>
+                                handleGenerateInviteCode(mapping.id)
+                              }
+                              disabled={isGeneratingCode}
+                              className="px-3 py-1 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-xs disabled:bg-blue-300 disabled:cursor-not-allowed"
+                            >
+                              {isGeneratingCode
+                                ? "Generating..."
+                                : "Generate Code"}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -593,15 +676,33 @@ export default function SettingsPage() {
             setIsStoreModalOpen(false);
             setStoreName("");
             setStoreAbbreviation("");
+            setInviteCode("");
           }}
           storeName={storeName}
           storeAbbreviation={storeAbbreviation}
           onStoreNameChange={setStoreName}
           onStoreAbbreviationChange={setStoreAbbreviation}
+          inviteCode={inviteCode}
+          onInviteCodeChange={setInviteCode}
           onSave={handleAddStore}
+          onJoin={handleJoinStore}
           isAddingStore={isAddingStore}
+          isJoiningStore={isJoiningStore}
           storeError={storeError}
         />
+
+        {/* Invite Code モーダル */}
+        {inviteCodeData && (
+          <InviteCodeModal
+            isOpen={isInviteCodeModalOpen}
+            onClose={() => {
+              setIsInviteCodeModalOpen(false);
+              setInviteCodeData(null);
+            }}
+            code={inviteCodeData.code}
+            expiresAt={inviteCodeData.expiresAt}
+          />
+        )}
 
         {/* Add Existing Role モーダル */}
         <AddExistingRoleModal

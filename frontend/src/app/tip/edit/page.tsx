@@ -29,6 +29,9 @@ export default function EditPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Working Hours CSV の編集モード状態
+  const [isEditingWorkingHours, setIsEditingWorkingHours] = useState(false);
+
   // ページ読み込み時にSupabaseからデータ取得（3つすべてをチェック）
   useEffect(() => {
     const fetchData = async () => {
@@ -86,9 +89,7 @@ export default function EditPage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-4xl mx-auto">
-        <h2 className="text-2xl font-semibold text-gray-800 mb-6">Edit Data</h2>
-
+      <div className="max-w-7xl mx-auto">
         {/* タブボタン */}
         <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6 w-fit">
           <button
@@ -126,6 +127,28 @@ export default function EditPage() {
         {/* Working Hours CSV タブのコンテンツ */}
         {activeTab === "workingHours" && (
           <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+            {/* Edit/Saveボタン */}
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={() => {
+                  if (isEditingWorkingHours) {
+                    // Save処理（将来的にはSupabaseに保存）
+                    // TODO: 保存処理を実装
+                    setIsEditingWorkingHours(false);
+                  } else {
+                    setIsEditingWorkingHours(true);
+                  }
+                }}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  isEditingWorkingHours
+                    ? "bg-green-500 text-white hover:bg-green-600"
+                    : "bg-blue-500 text-white hover:bg-blue-600"
+                }`}
+              >
+                {isEditingWorkingHours ? "Save" : "Edit"}
+              </button>
+            </div>
+
             {isLoading ? (
               <p className="text-gray-600">Loading working hours data...</p>
             ) : error ? (
@@ -135,7 +158,11 @@ export default function EditPage() {
                 No working hours data available. Please import a file first.
               </p>
             ) : (
-              <WorkingHoursEditTable data={workingHoursData} />
+              <WorkingHoursEditTable
+                data={workingHoursData}
+                isEditing={isEditingWorkingHours}
+                onDataChange={setWorkingHoursData}
+              />
             )}
           </div>
         )}

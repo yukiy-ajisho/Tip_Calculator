@@ -4,6 +4,9 @@ import { createServerClient } from "@supabase/ssr";
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
 
+  // パス名をヘッダーに追加（レイアウトで使用）
+  res.headers.set("x-pathname", req.nextUrl.pathname);
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -25,12 +28,31 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  // Basic authentication check
-  if (
-    req.nextUrl.pathname.startsWith("/records") ||
-    req.nextUrl.pathname.startsWith("/settings") ||
-    req.nextUrl.pathname.startsWith("/tip")
-  ) {
+  // ルートパス（/）の処理
+  if (req.nextUrl.pathname === "/") {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const url = req.nextUrl.clone();
+    if (user) {
+      // 認証済みの場合は/tipにリダイレクト
+      url.pathname = "/tip";
+    } else {
+      // 未認証の場合は/loginにリダイレクト
+      url.pathname = "/login";
+    }
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  // 保護されたルートをチェック
+  const protectedPaths = ["/records", "/settings", "/tip"];
+  const isProtectedPath = protectedPaths.some((path) =>
+    req.nextUrl.pathname.startsWith(path)
+  );
+
+  if (isProtectedPath) {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -48,11 +70,13 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
+    "/",
     "/records",
     "/records/:path*",
     "/settings",
     "/settings/:path*",
     "/tip",
     "/tip/:path*",
+    "/login",
   ],
 };

@@ -23,9 +23,12 @@ export async function apiRequest<T>(
     error: sessionError,
   } = await supabase.auth.getSession();
 
-  if (sessionError || !session) {
+  if (sessionError || !session || !session.access_token) {
     console.error("No session found or session error:", sessionError);
-    // Optionally redirect to login or throw a more specific error
+    // 認証エラー時にログインページにリダイレクト
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
     throw new Error("Authentication required.");
   }
 
@@ -39,6 +42,14 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
+    // 401エラー（認証エラー）の場合はログインページにリダイレクト
+    if (response.status === 401) {
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+      throw new Error("Authentication required.");
+    }
+
     let errorData: unknown;
     try {
       errorData = await response.json();
@@ -63,6 +74,22 @@ export const api = {
           storeName: name,
           storeAbbreviation: abbreviation,
         }),
+      });
+    },
+    generateInviteCode: (
+      storeId: string
+    ): Promise<{ code: string; expiresAt: string }> => {
+      return apiRequest<{ code: string; expiresAt: string }>(
+        `/api/stores/${storeId}/invite`,
+        {
+          method: "POST",
+        }
+      );
+    },
+    joinStore: (code: string): Promise<{ store: Store }> => {
+      return apiRequest<{ store: Store }>("/api/stores/join", {
+        method: "POST",
+        body: JSON.stringify({ code }),
       });
     },
   },

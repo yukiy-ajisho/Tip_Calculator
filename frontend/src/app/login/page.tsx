@@ -1,13 +1,60 @@
 "use client";
 
 import { createClient } from "@/lib/supabase-client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [error, setError] = useState<string | null>(null);
+  const [isChecking, setIsChecking] = useState(true);
   const supabase = createClient();
 
+  useEffect(() => {
+    // 既にログイン済みかチェック
+    const checkUser = async () => {
+      try {
+        // ローカルのセッションをチェック（サーバーにリクエストしない）
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        // セッションがある場合は/tipにリダイレクト
+        // セッションの有効性はmiddlewareで検証されるため、ここでは検証しない
+        if (session) {
+          router.replace("/tip");
+          return; // リダイレクト中は何も表示しない
+        }
+      } catch {
+        // エラーは無視（ログインページを表示）
+      } finally {
+        setIsChecking(false);
+      }
+    };
+    checkUser();
+
+    // エラーパラメータの処理
+    const errorParam = searchParams.get("error");
+    if (errorParam) {
+      switch (errorParam) {
+        case "auth_failed":
+          setError("Authentication failed. Please try again.");
+          break;
+        case "session_failed":
+          setError("Session verification failed. Please try again.");
+          break;
+        case "no_code":
+          setError("Authentication code was not provided. Please try again.");
+          break;
+        default:
+          setError("An error occurred. Please try again.");
+      }
+    }
+  }, [router, supabase, searchParams]);
+
   const handleGoogleLogin = async () => {
+    setError(null);
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -17,8 +64,23 @@ export default function LoginPage() {
 
     if (error) {
       console.error("Login error:", error);
+      setError("Login failed. Please try again.");
     }
   };
+
+  // 認証チェック中はローディング画面を表示
+  if (isChecking) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="w-full max-w-md bg-white p-8 rounded-lg shadow-md">
+          <div className="flex flex-col items-center justify-center space-y-4">
+            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-sm text-gray-600">Loading...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -27,6 +89,13 @@ export default function LoginPage() {
         <p className="text-gray-600 text-center mb-8">
           Sign in with your Google account to continue
         </p>
+
+        {/* エラーメッセージ */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg">
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
 
         <button
           onClick={handleGoogleLogin}
@@ -54,5 +123,24 @@ export default function LoginPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen bg-gray-50">
+          <div className="w-full max-w-md bg-white p-8 rounded-lg shadow-md">
+            <div className="flex flex-col items-center justify-center space-y-4">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm text-gray-600">Loading...</p>
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <LoginPageContent />
+    </Suspense>
   );
 }

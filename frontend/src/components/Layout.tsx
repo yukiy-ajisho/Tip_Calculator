@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Calculator, FileText, Settings } from "lucide-react";
+import { UserProfile } from "./UserProfile";
 
 // ナビゲーション項目
 const navigationItems = [
@@ -112,7 +113,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="flex-1 flex flex-col transition-all duration-300 ease-in-out">
         {/* ヘッダー（上部90px） */}
         <header
-          className="h-[90px] bg-white shadow-sm border-b border-gray-200 px-8 flex items-center"
+          className="h-[90px] bg-white shadow-sm border-b border-gray-200 px-8 flex items-center justify-between"
           style={{ paddingLeft: "30px" }}
         >
           <div className="flex items-center space-x-4">
@@ -120,6 +121,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
               {getPageTitle()}
             </h1>
           </div>
+
+          {/* ユーザープロファイル（ヘッダー右上） */}
+          <UserProfile />
         </header>
 
         {/* メインコンテンツ（下部残りスペース） */}
