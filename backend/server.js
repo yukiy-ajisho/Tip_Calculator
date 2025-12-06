@@ -161,6 +161,95 @@ app.post("/api/stores", authMiddleware, async (req, res) => {
   }
 });
 
+// PUT /api/stores/:storeId/settings - Update store settings
+app.put("/api/stores/:storeId/settings", authMiddleware, async (req, res) => {
+  const { storeId } = req.params;
+  const {
+    off_hours_adjustment_before_hours,
+    off_hours_adjustment_after_hours,
+  } = req.body;
+
+  try {
+    // 1. Check if user has access to this store
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("role")
+      .eq("store_id", storeId)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res
+        .status(404)
+        .json({ error: "Store not found or access denied" });
+    }
+
+    // 2. Validate input values (in minutes: 0-1440 minutes = 0-24 hours)
+    if (
+      off_hours_adjustment_before_hours !== null &&
+      off_hours_adjustment_before_hours !== undefined
+    ) {
+      const beforeMinutes = parseInt(off_hours_adjustment_before_hours, 10);
+      if (
+        isNaN(beforeMinutes) ||
+        beforeMinutes < 0 ||
+        beforeMinutes > 24 * 60
+      ) {
+        return res.status(400).json({
+          error:
+            "off_hours_adjustment_before_hours must be between 0 and 1440 minutes (0-24 hours)",
+        });
+      }
+    }
+
+    if (
+      off_hours_adjustment_after_hours !== null &&
+      off_hours_adjustment_after_hours !== undefined
+    ) {
+      const afterMinutes = parseInt(off_hours_adjustment_after_hours, 10);
+      if (isNaN(afterMinutes) || afterMinutes < 0 || afterMinutes > 24 * 60) {
+        return res.status(400).json({
+          error:
+            "off_hours_adjustment_after_hours must be between 0 and 1440 minutes (0-24 hours)",
+        });
+      }
+    }
+
+    // 3. Prepare update data (store as minutes)
+    const updateData = {};
+    if (off_hours_adjustment_before_hours !== undefined) {
+      updateData.off_hours_adjustment_before_hours =
+        off_hours_adjustment_before_hours === null ||
+        off_hours_adjustment_before_hours === ""
+          ? null
+          : parseInt(off_hours_adjustment_before_hours, 10);
+    }
+    if (off_hours_adjustment_after_hours !== undefined) {
+      updateData.off_hours_adjustment_after_hours =
+        off_hours_adjustment_after_hours === null ||
+        off_hours_adjustment_after_hours === ""
+          ? null
+          : parseInt(off_hours_adjustment_after_hours, 10);
+    }
+
+    // 4. Update store settings
+    const { error: updateError } = await supabase
+      .from("stores")
+      .update(updateData)
+      .eq("id", storeId);
+
+    if (updateError) {
+      console.error("Supabase update error:", updateError);
+      return res.status(500).json({ error: updateError.message });
+    }
+
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
 // 招待コード発行用APIエンドポイント
 app.post("/api/stores/:storeId/invite", authMiddleware, async (req, res) => {
   const { storeId } = req.params;
@@ -948,15 +1037,29 @@ app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
 
     // 4. formatted_working_hoursテーブルに保存
     if (formattedData.length > 0) {
-      const insertData = formattedData.map((record) => ({
-        stores_id: stores_id,
-        name: record.name,
-        date: record.date || null,
-        start: record.start || null,
-        end: record.end || null, // "end" is a reserved keyword, so it's quoted
-        role: record.role || "",
-        is_complete_on_import: record.is_complete_on_import || false,
-      }));
+      const insertData = formattedData.map((record) => {
+        // is_completeを現在の完全性に基づいて計算
+        // フロントエンドのisRecordCompleteと同じロジック（name, date, start, end, roleをチェック）
+        const isComplete = !!(
+          record.name &&
+          record.date &&
+          record.start &&
+          record.end &&
+          record.role &&
+          record.role.trim() !== ""
+        );
+
+        return {
+          stores_id: stores_id,
+          name: record.name,
+          date: record.date || null,
+          start: record.start || null,
+          end: record.end || null, // "end" is a reserved keyword, so it's quoted
+          role: record.role || "",
+          is_complete_on_import: record.is_complete_on_import || false,
+          is_complete: isComplete,
+        };
+      });
 
       const { error: insertError } = await supabase
         .from("formatted_working_hours")
@@ -979,12 +1082,490 @@ app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
   }
 });
 
+// DELETE /api/tips/calculation
+app.delete("/api/tips/calculation", authMiddleware, async (req, res) => {
+  try {
+    const { storeId } = req.query;
+
+    if (!storeId) {
+      return res.status(400).json({ error: "storeId is required" });
+    }
+
+    // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      throw new Error(
+        `Failed to fetch user stores: ${storeUsersError.message}`
+      );
+    }
+
+    if (!storeUsers || storeUsers.length === 0) {
+      return res.status(403).json({
+        error: "You do not have permission to access any stores",
+      });
+    }
+
+    // 2. 権限チェック
+    const storeIds = storeUsers.map((su) => su.store_id);
+    if (!storeIds.includes(storeId)) {
+      return res.status(403).json({
+        error: "You do not have permission to access this store",
+      });
+    }
+
+    // 3. tip_calculationsからstatus: 'processing'のレコードを削除
+    const { error: deleteCalcError } = await supabase
+      .from("tip_calculations")
+      .delete()
+      .eq("stores_id", storeId)
+      .eq("status", "processing");
+
+    if (deleteCalcError) {
+      console.error("Supabase delete tip_calculations error:", deleteCalcError);
+      throw new Error(
+        `Failed to delete tip_calculations: ${deleteCalcError.message}`
+      );
+    }
+
+    // 4. formatted_working_hoursから削除（存在する場合のみ）
+    const { error: deleteWorkingHoursError } = await supabase
+      .from("formatted_working_hours")
+      .delete()
+      .eq("stores_id", storeId);
+
+    if (deleteWorkingHoursError) {
+      console.error(
+        "Supabase delete formatted_working_hours error:",
+        deleteWorkingHoursError
+      );
+      throw new Error(
+        `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`
+      );
+    }
+
+    // 5. formatted_tip_dataから削除（存在する場合のみ）
+    const { error: deleteTipDataError } = await supabase
+      .from("formatted_tip_data")
+      .delete()
+      .eq("stores_id", storeId);
+
+    if (deleteTipDataError) {
+      console.error(
+        "Supabase delete formatted_tip_data error:",
+        deleteTipDataError
+      );
+      throw new Error(
+        `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`
+      );
+    }
+
+    // 6. formatted_cash_tipから削除（存在する場合のみ）
+    const { error: deleteCashTipError } = await supabase
+      .from("formatted_cash_tip")
+      .delete()
+      .eq("stores_id", storeId);
+
+    if (deleteCashTipError) {
+      console.error(
+        "Supabase delete formatted_cash_tip error:",
+        deleteCashTipError
+      );
+      throw new Error(
+        `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error deleting calculation data:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/tips/calculate
+app.post("/api/tips/calculate", authMiddleware, async (req, res) => {
+  try {
+    const { storeId } = req.body;
+
+    if (!storeId) {
+      return res.status(400).json({ error: "storeId is required" });
+    }
+
+    // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      throw new Error(
+        `Failed to fetch user stores: ${storeUsersError.message}`
+      );
+    }
+
+    if (!storeUsers || storeUsers.length === 0) {
+      return res.status(403).json({
+        error: "You do not have permission to access any stores",
+      });
+    }
+
+    // 2. 権限チェック
+    const storeIds = storeUsers.map((su) => su.store_id);
+    if (!storeIds.includes(storeId)) {
+      return res.status(403).json({
+        error: "You do not have permission to access this store",
+      });
+    }
+
+    // 3. tip_calculationsレコードを取得（status: 'processing'）
+    const { data: calculation, error: calcError } = await supabase
+      .from("tip_calculations")
+      .select("*")
+      .eq("stores_id", storeId)
+      .eq("status", "processing")
+      .single();
+
+    if (calcError || !calculation) {
+      console.error("Supabase select tip_calculations error:", calcError);
+      return res.status(404).json({
+        error: "No processing calculation found for this store",
+      });
+    }
+
+    const calculationId = calculation.id;
+
+    // 4. calculate_tips関数をRPCで呼び出す
+    // Note: calculate_tips returns VOID, so data will be null
+    const { error: rpcError } = await supabase.rpc("calculate_tips", {
+      p_calculation_id: calculationId,
+      p_store_id: storeId,
+    });
+
+    // RPCエラーチェック
+    if (rpcError) {
+      console.error("RPC error:", rpcError);
+      return res.status(500).json({
+        error: `Failed to calculate tips: ${rpcError.message}`,
+      });
+    }
+
+    // 5. 計算完了後のstatusを確認（オプション）
+    // 関数内でstatusが更新されるため、念のため確認
+    const { data: updatedCalculation, error: checkError } = await supabase
+      .from("tip_calculations")
+      .select("status")
+      .eq("id", calculationId)
+      .single();
+
+    if (checkError) {
+      console.error("Failed to check calculation status:", checkError);
+      // エラーでも計算は実行されている可能性があるため、成功レスポンスを返す
+    } else if (updatedCalculation?.status === "failed") {
+      return res.status(500).json({
+        error: "Tip calculation failed. Please check the data and try again.",
+      });
+    }
+
+    // 6. 成功レスポンスを返す
+    res.status(200).json({
+      success: true,
+      calculationId: calculationId,
+    });
+  } catch (error) {
+    console.error("Error calculating tips:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/tips/calculation-results
+app.get("/api/tips/calculation-results", authMiddleware, async (req, res) => {
+  try {
+    const { calculationId } = req.query;
+
+    if (!calculationId) {
+      return res.status(400).json({ error: "calculationId is required" });
+    }
+
+    // 1. tip_calculationsレコードを取得
+    const { data: calculation, error: calcError } = await supabase
+      .from("tip_calculations")
+      .select("*")
+      .eq("id", calculationId)
+      .single();
+
+    if (calcError || !calculation) {
+      console.error("Supabase select tip_calculations error:", calcError);
+      return res.status(404).json({
+        error: "Calculation not found",
+      });
+    }
+
+    // 2. 権限チェック（ユーザーが該当店舗へのアクセス権を持っているか）
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      throw new Error(
+        `Failed to fetch user stores: ${storeUsersError.message}`
+      );
+    }
+
+    if (!storeUsers || storeUsers.length === 0) {
+      return res.status(403).json({
+        error: "You do not have permission to access any stores",
+      });
+    }
+
+    const storeIds = storeUsers.map((su) => su.store_id);
+    if (!storeIds.includes(calculation.stores_id)) {
+      return res.status(403).json({
+        error: "You do not have permission to access this calculation",
+      });
+    }
+
+    // 3. 店舗名を取得
+    const { data: store, error: storeError } = await supabase
+      .from("stores")
+      .select("name")
+      .eq("id", calculation.stores_id)
+      .single();
+
+    const storeName = storeError || !store ? null : store.name;
+
+    // 4. tip_calculation_resultsから計算結果を取得
+    const { data: results, error: resultsError } = await supabase
+      .from("tip_calculation_results")
+      .select("*")
+      .eq("calculation_id", calculationId)
+      .order("name", { ascending: true })
+      .order("date", { ascending: true });
+
+    if (resultsError) {
+      console.error(
+        "Supabase select tip_calculation_results error:",
+        resultsError
+      );
+      throw new Error(
+        `Failed to fetch calculation results: ${resultsError.message}`
+      );
+    }
+
+    // 5. レスポンスを返す
+    res.status(200).json({
+      success: true,
+      data: {
+        calculation: {
+          id: calculation.id,
+          stores_id: calculation.stores_id,
+          period_start: calculation.period_start,
+          period_end: calculation.period_end,
+          status: calculation.status,
+          store_name: storeName,
+        },
+        results: results || [],
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching calculation results:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/tips/formatted-data
+app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
+  try {
+    const { storeId } = req.query;
+
+    if (!storeId) {
+      return res.status(400).json({ error: "storeId is required" });
+    }
+
+    // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      throw new Error(
+        `Failed to fetch user stores: ${storeUsersError.message}`
+      );
+    }
+
+    if (!storeUsers || storeUsers.length === 0) {
+      return res.status(403).json({
+        error: "You do not have permission to access any stores",
+      });
+    }
+
+    // 2. 権限チェック
+    const storeIds = storeUsers.map((su) => su.store_id);
+    if (!storeIds.includes(storeId)) {
+      return res.status(403).json({
+        error: "You do not have permission to access this store",
+      });
+    }
+
+    // 3. formatted_working_hoursから削除
+    const { error: deleteWorkingHoursError } = await supabase
+      .from("formatted_working_hours")
+      .delete()
+      .eq("stores_id", storeId);
+
+    if (deleteWorkingHoursError) {
+      console.error(
+        "Supabase delete formatted_working_hours error:",
+        deleteWorkingHoursError
+      );
+      throw new Error(
+        `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`
+      );
+    }
+
+    // 4. formatted_tip_dataから削除
+    const { error: deleteTipDataError } = await supabase
+      .from("formatted_tip_data")
+      .delete()
+      .eq("stores_id", storeId);
+
+    if (deleteTipDataError) {
+      console.error(
+        "Supabase delete formatted_tip_data error:",
+        deleteTipDataError
+      );
+      throw new Error(
+        `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`
+      );
+    }
+
+    // 5. formatted_cash_tipから削除
+    const { error: deleteCashTipError } = await supabase
+      .from("formatted_cash_tip")
+      .delete()
+      .eq("stores_id", storeId);
+
+    if (deleteCashTipError) {
+      console.error(
+        "Supabase delete formatted_cash_tip error:",
+        deleteCashTipError
+      );
+      throw new Error(
+        `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error deleting formatted data:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/tips/calculation/revert
+app.post("/api/tips/calculation/revert", authMiddleware, async (req, res) => {
+  try {
+    const { calculationId } = req.query;
+
+    if (!calculationId) {
+      return res.status(400).json({ error: "calculationId is required" });
+    }
+
+    // 1. tip_calculationsレコードを取得
+    const { data: calculation, error: calcError } = await supabase
+      .from("tip_calculations")
+      .select("*")
+      .eq("id", calculationId)
+      .single();
+
+    if (calcError || !calculation) {
+      console.error("Supabase select tip_calculations error:", calcError);
+      return res.status(404).json({
+        error: "Calculation not found",
+      });
+    }
+
+    // 2. 権限チェック（ユーザーが該当店舗へのアクセス権を持っているか）
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      throw new Error(
+        `Failed to fetch user stores: ${storeUsersError.message}`
+      );
+    }
+
+    if (!storeUsers || storeUsers.length === 0) {
+      return res.status(403).json({
+        error: "You do not have permission to access any stores",
+      });
+    }
+
+    const storeIds = storeUsers.map((su) => su.store_id);
+    if (!storeIds.includes(calculation.stores_id)) {
+      return res.status(403).json({
+        error: "You do not have permission to access this calculation",
+      });
+    }
+
+    // 3. statusが'completed'かチェック
+    if (calculation.status !== "completed") {
+      return res.status(400).json({
+        error: `Calculation status must be 'completed' to revert. Current status: ${calculation.status}`,
+      });
+    }
+
+    // 4. revert_calculation関数をRPCで呼び出す
+    const { data: returnedStoreId, error: rpcError } = await supabase.rpc(
+      "revert_calculation",
+      {
+        p_calculation_id: calculationId,
+      }
+    );
+
+    // RPCエラーチェック
+    if (rpcError) {
+      console.error("RPC error:", rpcError);
+      return res.status(500).json({
+        error: `Failed to revert calculation: ${rpcError.message}`,
+      });
+    }
+
+    // 5. 成功レスポンスを返す（stores_idを含む）
+    res.status(200).json({
+      success: true,
+      storeId: returnedStoreId || calculation.stores_id,
+    });
+  } catch (error) {
+    console.error("Error reverting calculation:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/tips/formatted-working-hours
 app.get(
   "/api/tips/formatted-working-hours",
   authMiddleware,
   async (req, res) => {
     try {
+      const { storeId } = req.query;
+
       // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
       const { data: storeUsers, error: storeUsersError } = await supabase
         .from("store_users")
@@ -1009,8 +1590,35 @@ app.get(
       // 2. ユーザーが権限を持つ店のIDのリストを作成
       const storeIds = storeUsers.map((su) => su.store_id);
 
-      // 3. その店のIDで formatted_working_hours からデータを取得
-      // データが存在する場合、それは必ず一店舗分のデータセットのみ
+      // 3. 店舗IDが指定されている場合、権限チェック
+      if (storeId) {
+        if (!storeIds.includes(storeId)) {
+          return res.status(403).json({
+            error: "You do not have permission to access this store",
+          });
+        }
+        // 指定された店舗のデータのみを取得
+        const { data, error } = await supabase
+          .from("formatted_working_hours")
+          .select("*")
+          .eq("stores_id", storeId)
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          console.error(
+            "Supabase select formatted_working_hours error:",
+            error
+          );
+          throw new Error(`Failed to fetch working hours: ${error.message}`);
+        }
+
+        return res.status(200).json({
+          success: true,
+          data: data || [],
+        });
+      }
+
+      // 4. 店舗IDが指定されていない場合、既存の動作（全店舗のデータを返す）
       const { data, error } = await supabase
         .from("formatted_working_hours")
         .select("*")
@@ -1029,6 +1637,123 @@ app.get(
       });
     } catch (error) {
       console.error("Error fetching formatted working hours:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// PUT /api/tips/formatted-working-hours
+app.put(
+  "/api/tips/formatted-working-hours",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { data } = req.body;
+
+      if (!data || !Array.isArray(data)) {
+        return res.status(400).json({ error: "data array is required" });
+      }
+
+      // ユーザーが権限を持つ店を取得
+      const { data: storeUsers, error: storeUsersError } = await supabase
+        .from("store_users")
+        .select("store_id")
+        .eq("user_id", req.user.id);
+
+      if (storeUsersError) {
+        console.error("Supabase select store_users error:", storeUsersError);
+        throw new Error(
+          `Failed to fetch user stores: ${storeUsersError.message}`
+        );
+      }
+
+      if (!storeUsers || storeUsers.length === 0) {
+        return res.status(403).json({ error: "No store access" });
+      }
+
+      const storeIds = storeUsers.map((su) => su.store_id);
+
+      // 有効なレコードIDを抽出
+      const recordIds = data
+        .map((r) => r.id)
+        .filter((id) => id && id.trim() !== "");
+
+      if (recordIds.length === 0) {
+        return res.status(200).json({
+          success: true,
+          message: "No records to update",
+        });
+      }
+
+      // 一括で権限チェック：更新対象レコードのstores_idを一括取得
+      const { data: existingRecords, error: fetchError } = await supabase
+        .from("formatted_working_hours")
+        .select("id, stores_id")
+        .in("id", recordIds);
+
+      if (fetchError) {
+        console.error(
+          "Supabase select formatted_working_hours error:",
+          fetchError
+        );
+        throw new Error(`Failed to fetch records: ${fetchError.message}`);
+      }
+
+      // 権限を持つレコードIDのセットを作成
+      const authorizedRecordIds = new Set(
+        existingRecords
+          .filter((r) => storeIds.includes(r.stores_id))
+          .map((r) => r.id)
+      );
+
+      // 各レコードを更新（権限チェック済みのもののみ）
+      const updatePromises = data
+        .filter((record) => record.id && authorizedRecordIds.has(record.id))
+        .map((record) => {
+          return supabase
+            .from("formatted_working_hours")
+            .update({
+              name: record.name,
+              date: record.date || null,
+              start: record.start || null,
+              end: record.end || null,
+              role: record.role || null,
+              // is_complete_on_importはフロントエンドから送られてきた値をそのまま使用（再計算しない）
+              is_complete_on_import: record.is_complete_on_import ?? false,
+              // is_completeはフロントエンドから送られてきた値をそのまま使用
+              // フロントエンドで既に正しく計算されているため、再計算は不要
+              is_complete: record.is_complete ?? false,
+            })
+            .eq("id", record.id);
+        });
+
+      // 並列で更新を実行
+      const updateResults = await Promise.allSettled(updatePromises);
+
+      // エラーをチェック
+      const errors = updateResults
+        .map((result, index) => {
+          if (result.status === "rejected") {
+            return { index, error: result.reason };
+          }
+          if (result.value.error) {
+            return { index, error: result.value.error };
+          }
+          return null;
+        })
+        .filter((e) => e !== null);
+
+      if (errors.length > 0) {
+        console.error("Some records failed to update:", errors);
+        // 一部が失敗しても成功レスポンスを返す（既存の動作を維持）
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Working hours updated successfully",
+      });
+    } catch (error) {
+      console.error("Error updating formatted working hours:", error);
       res.status(500).json({ error: error.message });
     }
   }
@@ -1067,7 +1792,38 @@ app.post("/api/tips/format-tip-data", authMiddleware, async (req, res) => {
       }
     }
 
-    // 3. 成功ステータスのみ返す（データは返さない）
+    // 3. Get period information from tip_calculations (status: 'processing')
+    const { data: calculation, error: calcError } = await supabase
+      .from("tip_calculations")
+      .select("period_start, period_end")
+      .eq("stores_id", stores_id)
+      .eq("status", "processing")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (calcError) {
+      console.error("Supabase select tip_calculations error:", calcError);
+      // If calculation record not found, skip adjustment (not critical)
+      console.warn(
+        "No processing calculation found, skipping off-hours adjustment"
+      );
+    } else if (calculation) {
+      // 4. Call adjust_off_hours_tips function via RPC
+      const { error: rpcError } = await supabase.rpc("adjust_off_hours_tips", {
+        p_store_id: stores_id,
+        p_period_start: calculation.period_start,
+        p_period_end: calculation.period_end,
+      });
+
+      if (rpcError) {
+        console.error("Supabase RPC adjust_off_hours_tips error:", rpcError);
+        // Log error but don't fail the request (adjustment is optional)
+        console.warn("Failed to adjust off-hours tips, continuing anyway");
+      }
+    }
+
+    // 5. 成功ステータスのみ返す（データは返さない）
     res.status(200).json({
       success: true,
     });
@@ -1080,6 +1836,8 @@ app.post("/api/tips/format-tip-data", authMiddleware, async (req, res) => {
 // GET /api/tips/formatted-tip-data
 app.get("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
   try {
+    const { storeId } = req.query;
+
     // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
     const { data: storeUsers, error: storeUsersError } = await supabase
       .from("store_users")
@@ -1104,8 +1862,32 @@ app.get("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
     // 2. ユーザーが権限を持つ店のIDのリストを作成
     const storeIds = storeUsers.map((su) => su.store_id);
 
-    // 3. その店のIDで formatted_tip_data からデータを取得
-    // データが存在する場合、それは必ず一店舗分のデータセットのみ
+    // 3. 店舗IDが指定されている場合、権限チェック
+    if (storeId) {
+      if (!storeIds.includes(storeId)) {
+        return res.status(403).json({
+          error: "You do not have permission to access this store",
+        });
+      }
+      // 指定された店舗のデータのみを取得
+      const { data, error } = await supabase
+        .from("formatted_tip_data")
+        .select("*")
+        .eq("stores_id", storeId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Supabase select formatted_tip_data error:", error);
+        throw new Error(`Failed to fetch tip data: ${error.message}`);
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: data || [],
+      });
+    }
+
+    // 4. 店舗IDが指定されていない場合、既存の動作（全店舗のデータを返す）
     const { data, error } = await supabase
       .from("formatted_tip_data")
       .select("*")
@@ -1203,9 +1985,88 @@ app.post("/api/tips/format-cash-tip", authMiddleware, async (req, res) => {
   }
 });
 
+// PUT /api/tips/formatted-tip-data - Update formatted tip data (for manual editing)
+app.put("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
+  const { id, payment_time } = req.body;
+
+  if (!id || payment_time === undefined) {
+    return res.status(400).json({ error: "id and payment_time are required" });
+  }
+
+  try {
+    // 1. Get the record to check if it exists and user has access
+    const { data: tipRecord, error: fetchError } = await supabase
+      .from("formatted_tip_data")
+      .select("id, stores_id, is_adjusted, original_payment_time")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !tipRecord) {
+      return res.status(404).json({ error: "Tip record not found" });
+    }
+
+    // 2. Check if user has access to this store
+    const { data: storeUser, error: storeUserError } = await supabase
+      .from("store_users")
+      .select("role")
+      .eq("store_id", tipRecord.stores_id)
+      .eq("user_id", req.user.id)
+      .single();
+
+    if (storeUserError || !storeUser) {
+      return res
+        .status(403)
+        .json({ error: "You do not have permission to access this store" });
+    }
+
+    // 3. Validate payment_time format (HH:MM:SS or HH:MM or null)
+    let validatedPaymentTime = null;
+    if (payment_time !== null && payment_time !== "") {
+      const timePattern = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/;
+      if (!timePattern.test(payment_time)) {
+        return res.status(400).json({
+          error: "payment_time must be in HH:MM:SS or HH:MM format",
+        });
+      }
+      // Normalize to HH:MM:SS format
+      validatedPaymentTime = payment_time.includes(":")
+        ? payment_time.split(":").length === 2
+          ? `${payment_time}:00`
+          : payment_time
+        : null;
+    }
+
+    // 4. Update payment_time only (preserve original_payment_time and is_adjusted if already adjusted)
+    const updateData = { payment_time: validatedPaymentTime };
+
+    // If already adjusted, keep original_payment_time and is_adjusted as true
+    if (tipRecord.is_adjusted) {
+      // Don't update original_payment_time or is_adjusted
+      // They should remain as the first original value
+    }
+
+    const { error: updateError } = await supabase
+      .from("formatted_tip_data")
+      .update(updateData)
+      .eq("id", id);
+
+    if (updateError) {
+      console.error("Supabase update error:", updateError);
+      return res.status(500).json({ error: updateError.message });
+    }
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Error updating formatted tip data:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/tips/formatted-cash-tip
 app.get("/api/tips/formatted-cash-tip", authMiddleware, async (req, res) => {
   try {
+    const { storeId } = req.query;
+
     // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
     const { data: storeUsers, error: storeUsersError } = await supabase
       .from("store_users")
@@ -1230,8 +2091,32 @@ app.get("/api/tips/formatted-cash-tip", authMiddleware, async (req, res) => {
     // 2. ユーザーが権限を持つ店のIDのリストを作成
     const storeIds = storeUsers.map((su) => su.store_id);
 
-    // 3. その店のIDで formatted_cash_tip からデータを取得
-    // データが存在する場合、それは必ず一店舗分のデータセットのみ
+    // 3. 店舗IDが指定されている場合、権限チェック
+    if (storeId) {
+      if (!storeIds.includes(storeId)) {
+        return res.status(403).json({
+          error: "You do not have permission to access this store",
+        });
+      }
+      // 指定された店舗のデータのみを取得
+      const { data, error } = await supabase
+        .from("formatted_cash_tip")
+        .select("*")
+        .eq("stores_id", storeId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Supabase select formatted_cash_tip error:", error);
+        throw new Error(`Failed to fetch cash tip data: ${error.message}`);
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: data || [],
+      });
+    }
+
+    // 4. 店舗IDが指定されていない場合、既存の動作（全店舗のデータを返す）
     const { data, error } = await supabase
       .from("formatted_cash_tip")
       .select("*")

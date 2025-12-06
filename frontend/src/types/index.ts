@@ -3,6 +3,8 @@ export interface Store {
   name: string;
   abbreviation: string;
   role?: "owner" | "manager"; // ユーザーがそのストアに対して持つ権限
+  off_hours_adjustment_before_hours?: number | null;
+  off_hours_adjustment_after_hours?: number | null;
 }
 
 export interface StoreInvitation {
@@ -46,12 +48,15 @@ export interface TipPoolPattern {
 }
 
 export interface FormattedWorkingHours {
+  id: string;
   name: string;
-  date: string;
-  start: string;
-  end: string;
-  role: string;
-  is_complete_on_import: boolean;
+  date: string | null;
+  start: string | null;
+  end: string | null;
+  role: string | null;
+  is_complete_on_import: boolean; // インポート時の状態（変更しない）
+  is_complete: boolean; // 現在の完全性（編集時に更新）
+  stores_id: string;
 }
 
 export interface FormatWorkingHoursResponse {
@@ -64,10 +69,19 @@ export interface GetFormattedWorkingHoursResponse {
   data: FormattedWorkingHours[];
 }
 
+export interface UpdateFormattedWorkingHoursResponse {
+  success: boolean;
+  message?: string;
+}
+
 export interface FormattedTipData {
+  id?: string;
   order_date: string; // DATE型 (YYYY-MM-DD)
   payment_time: string | null; // TIME型 (HH:MM:SS) または null
+  original_payment_time?: string | null; // TIME型 (HH:MM:SS) または null
+  is_adjusted?: boolean; // 調整済みかどうか
   tips: string; // NUMERIC型 (文字列として)
+  stores_id?: string;
 }
 
 export interface FormatTipDataResponse {
@@ -91,4 +105,30 @@ export interface FormatCashTipResponse {
 export interface GetFormattedCashTipResponse {
   success: boolean;
   data: FormattedCashTip[];
+}
+
+export interface TipCalculationResult {
+  id: string;
+  calculation_id: string;
+  name: string | null;
+  date: string; // DATE型 (YYYY-MM-DD)
+  tips: number | null;
+  cash_tips: number | null;
+}
+
+export interface CalculationInfo {
+  id: string;
+  stores_id: string;
+  period_start: string | null; // DATE型 (YYYY-MM-DD)
+  period_end: string | null; // DATE型 (YYYY-MM-DD)
+  status: string | null;
+  store_name?: string; // JOINで取得
+}
+
+export interface GetCalculationResultsResponse {
+  success: boolean;
+  data: {
+    calculation: CalculationInfo;
+    results: TipCalculationResult[];
+  };
 }

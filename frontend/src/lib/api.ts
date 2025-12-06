@@ -6,10 +6,13 @@ import {
   TipPoolPattern,
   FormatWorkingHoursResponse,
   GetFormattedWorkingHoursResponse,
+  UpdateFormattedWorkingHoursResponse,
+  FormattedWorkingHours,
   FormatTipDataResponse,
   GetFormattedTipDataResponse,
   FormatCashTipResponse,
   GetFormattedCashTipResponse,
+  GetCalculationResultsResponse,
 } from "@/types";
 import { getErrorMessage } from "@/lib/is-api-error";
 
@@ -94,6 +97,21 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ code }),
       });
+    },
+    updateStoreSettings: (
+      storeId: string,
+      settings: {
+        off_hours_adjustment_before_hours?: number | null;
+        off_hours_adjustment_after_hours?: number | null;
+      }
+    ): Promise<{ success: boolean }> => {
+      return apiRequest<{ success: boolean }>(
+        `/api/stores/${storeId}/settings`,
+        {
+          method: "PUT",
+          body: JSON.stringify(settings),
+        }
+      );
     },
   },
   roleMappings: {
@@ -180,9 +198,23 @@ export const api = {
         }
       );
     },
-    getFormattedWorkingHours: (): Promise<GetFormattedWorkingHoursResponse> => {
-      return apiRequest<GetFormattedWorkingHoursResponse>(
-        "/api/tips/formatted-working-hours"
+    getFormattedWorkingHours: (
+      storeId?: string
+    ): Promise<GetFormattedWorkingHoursResponse> => {
+      const url = storeId
+        ? `/api/tips/formatted-working-hours?storeId=${storeId}`
+        : "/api/tips/formatted-working-hours";
+      return apiRequest<GetFormattedWorkingHoursResponse>(url);
+    },
+    updateFormattedWorkingHours: (
+      data: FormattedWorkingHours[]
+    ): Promise<UpdateFormattedWorkingHoursResponse> => {
+      return apiRequest<UpdateFormattedWorkingHoursResponse>(
+        "/api/tips/formatted-working-hours",
+        {
+          method: "PUT",
+          body: JSON.stringify({ data }),
+        }
       );
     },
     formatTipData: (
@@ -197,10 +229,22 @@ export const api = {
         }),
       });
     },
-    getFormattedTipData: (): Promise<GetFormattedTipDataResponse> => {
-      return apiRequest<GetFormattedTipDataResponse>(
-        "/api/tips/formatted-tip-data"
-      );
+    getFormattedTipData: (
+      storeId?: string
+    ): Promise<GetFormattedTipDataResponse> => {
+      const url = storeId
+        ? `/api/tips/formatted-tip-data?storeId=${storeId}`
+        : "/api/tips/formatted-tip-data";
+      return apiRequest<GetFormattedTipDataResponse>(url);
+    },
+    updateFormattedTipData: (
+      id: string,
+      payment_time: string | null
+    ): Promise<{ success: boolean }> => {
+      return apiRequest<{ success: boolean }>("/api/tips/formatted-tip-data", {
+        method: "PUT",
+        body: JSON.stringify({ id, payment_time }),
+      });
     },
     formatCashTip: (
       storesId: string,
@@ -214,9 +258,56 @@ export const api = {
         }),
       });
     },
-    getFormattedCashTip: (): Promise<GetFormattedCashTipResponse> => {
-      return apiRequest<GetFormattedCashTipResponse>(
-        "/api/tips/formatted-cash-tip"
+    getFormattedCashTip: (
+      storeId?: string
+    ): Promise<GetFormattedCashTipResponse> => {
+      const url = storeId
+        ? `/api/tips/formatted-cash-tip?storeId=${storeId}`
+        : "/api/tips/formatted-cash-tip";
+      return apiRequest<GetFormattedCashTipResponse>(url);
+    },
+    deleteCalculation: (storeId: string): Promise<{ success: boolean }> => {
+      return apiRequest<{ success: boolean }>(
+        `/api/tips/calculation?storeId=${storeId}`,
+        {
+          method: "DELETE",
+        }
+      );
+    },
+    calculate: (
+      storeId: string
+    ): Promise<{ success: boolean; calculationId: string }> => {
+      return apiRequest<{ success: boolean; calculationId: string }>(
+        "/api/tips/calculate",
+        {
+          method: "POST",
+          body: JSON.stringify({ storeId }),
+        }
+      );
+    },
+    getCalculationResults: (
+      calculationId: string
+    ): Promise<GetCalculationResultsResponse> => {
+      return apiRequest<GetCalculationResultsResponse>(
+        `/api/tips/calculation-results?calculationId=${calculationId}`
+      );
+    },
+    deleteFormattedData: (storeId: string): Promise<{ success: boolean }> => {
+      return apiRequest<{ success: boolean }>(
+        `/api/tips/formatted-data?storeId=${storeId}`,
+        {
+          method: "DELETE",
+        }
+      );
+    },
+    revertCalculation: (
+      calculationId: string
+    ): Promise<{ success: boolean; storeId: string }> => {
+      return apiRequest<{ success: boolean; storeId: string }>(
+        `/api/tips/calculation/revert?calculationId=${calculationId}`,
+        {
+          method: "POST",
+        }
       );
     },
   },

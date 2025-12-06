@@ -69,6 +69,18 @@ export default function SettingsPage() {
     Map<string, string>
   >(new Map());
 
+  // Store Settings state
+  const [isStoreSettingsEditMode, setIsStoreSettingsEditMode] = useState(false);
+  const [editedStoreSettings, setEditedStoreSettings] = useState<
+    Map<string, { beforeHours: number | null; afterHours: number | null }>
+  >(new Map());
+  const [storeSettingsInputs, setStoreSettingsInputs] = useState<
+    Map<string, { beforeHours: string; afterHours: string }>
+  >(new Map());
+  const [storeSettingsError, setStoreSettingsError] = useState<string | null>(
+    null
+  );
+
   // Fetch stores on mount
   useEffect(() => {
     fetchStores();
@@ -474,6 +486,207 @@ export default function SettingsPage() {
     } catch (error: any) {
       console.error("Failed to generate invite code:", error);
       setStoreError(error.message || "Failed to generate invite code.");
+    }
+  };
+
+  // Helper functions for time format conversion (minutes <-> HH:MM)
+  const minutesToTimeString = (minutes: number | null): string => {
+    if (minutes === null || minutes === undefined) return "";
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}:${mins.toString().padStart(2, "0")}`;
+  };
+
+  const timeStringToMinutes = (timeString: string): number | null => {
+    if (!timeString || timeString.trim() === "") return null;
+
+    // Support both HH:MM and integer format (for backward compatibility)
+    if (/^\d+$/.test(timeString)) {
+      // Integer format (hours)
+      const hours = parseInt(timeString, 10);
+      if (isNaN(hours) || hours < 0 || hours > 24) return null;
+      return hours * 60; // Convert hours to minutes
+    }
+
+    // HH:MM format
+    const timePattern = /^(\d{1,2}):(\d{2})$/;
+    const match = timeString.match(timePattern);
+    if (!match) return null;
+
+    const hours = parseInt(match[1], 10);
+    const mins = parseInt(match[2], 10);
+
+    if (
+      isNaN(hours) ||
+      isNaN(mins) ||
+      hours < 0 ||
+      hours > 24 ||
+      mins < 0 ||
+      mins >= 60
+    ) {
+      return null;
+    }
+
+    const totalMinutes = hours * 60 + mins;
+    if (totalMinutes > 24 * 60) return null; // Max 24 hours
+
+    return totalMinutes;
+  };
+
+  const validateTimeString = (timeString: string): boolean => {
+    if (timeString === "") return true; // Empty is valid
+
+    // Support both HH:MM and integer format
+    if (/^\d+$/.test(timeString)) {
+      const hours = parseInt(timeString, 10);
+      return !isNaN(hours) && hours >= 0 && hours <= 24;
+    }
+
+    // HH:MM format
+    const timePattern = /^(\d{1,2}):(\d{2})$/;
+    const match = timeString.match(timePattern);
+    if (!match) return false;
+
+    const hours = parseInt(match[1], 10);
+    const mins = parseInt(match[2], 10);
+
+    if (isNaN(hours) || isNaN(mins)) return false;
+    if (hours < 0 || hours > 24) return false;
+    if (mins < 0 || mins >= 60) return false;
+
+    const totalMinutes = hours * 60 + mins;
+    return totalMinutes <= 24 * 60;
+  };
+
+  // Store Settings handlers
+  const handleStoreSettingsEditModeToggle = () => {
+    if (isStoreSettingsEditMode) {
+      // Cancel edit mode
+      setIsStoreSettingsEditMode(false);
+      setEditedStoreSettings(new Map());
+      setStoreSettingsInputs(new Map());
+      setStoreSettingsError(null);
+    } else {
+      // Enter edit mode
+      setIsStoreSettingsEditMode(true);
+      const newEditedSettings = new Map<
+        string,
+        { beforeHours: number | null; afterHours: number | null }
+      >();
+      const newInputs = new Map<
+        string,
+        { beforeHours: string; afterHours: string }
+      >();
+      stores.forEach((store) => {
+        const beforeMinutes = store.off_hours_adjustment_before_hours ?? null;
+        const afterMinutes = store.off_hours_adjustment_after_hours ?? null;
+        newEditedSettings.set(store.id, {
+          beforeHours: beforeMinutes,
+          afterHours: afterMinutes,
+        });
+        newInputs.set(store.id, {
+          beforeHours: minutesToTimeString(beforeMinutes),
+          afterHours: minutesToTimeString(afterMinutes),
+        });
+      });
+      setEditedStoreSettings(newEditedSettings);
+      setStoreSettingsInputs(newInputs);
+    }
+  };
+
+  const handleStoreSettingsFieldChange = (
+    storeId: string,
+    field: "beforeHours" | "afterHours",
+    value: string
+  ) => {
+    // Allow HH:MM format or integer format (for backward compatibility)
+    // Pattern: empty string, digits only, or HH:MM format
+    const timePattern = /^(\d*:?\d*)$/;
+    if (timePattern.test(value)) {
+      setStoreSettingsInputs((prev) => {
+        const newMap = new Map(prev);
+        const current = newMap.get(storeId) || {
+          beforeHours: "",
+          afterHours: "",
+        };
+        newMap.set(storeId, { ...current, [field]: value });
+        return newMap;
+      });
+    }
+  };
+
+  const handleStoreSettingsFieldBlur = (
+    storeId: string,
+    field: "beforeHours" | "afterHours"
+  ) => {
+    const inputValue = storeSettingsInputs.get(storeId)?.[field] || "";
+
+    // Validate time string format
+    if (!validateTimeString(inputValue)) {
+      setStoreSettingsError(
+        `${
+          field === "beforeHours" ? "Before Hours" : "After Hours"
+        } must be in HH:MM format (0:00 to 24:00) or integer (0-24)`
+      );
+      return;
+    }
+
+    // Convert time string to minutes
+    const minutesValue = timeStringToMinutes(inputValue);
+
+    // Additional validation: 0-1440 minutes (0-24 hours)
+    if (minutesValue !== null && (minutesValue < 0 || minutesValue > 24 * 60)) {
+      setStoreSettingsError(
+        `${
+          field === "beforeHours" ? "Before Hours" : "After Hours"
+        } must be between 0:00 and 24:00`
+      );
+      return;
+    }
+
+    setStoreSettingsError(null);
+
+    // Update edited settings (store as minutes)
+    setEditedStoreSettings((prev) => {
+      const newMap = new Map(prev);
+      const current = newMap.get(storeId) || {
+        beforeHours: null,
+        afterHours: null,
+      };
+      newMap.set(storeId, { ...current, [field]: minutesValue });
+      return newMap;
+    });
+
+    // Update input state to show formatted value (or keep empty if null)
+    setStoreSettingsInputs((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(storeId, {
+        ...(prev.get(storeId) || { beforeHours: "", afterHours: "" }),
+        [field]: minutesToTimeString(minutesValue),
+      });
+      return newMap;
+    });
+  };
+
+  const handleStoreSettingsSave = async () => {
+    setStoreSettingsError(null);
+    try {
+      // Save each store's settings
+      for (const [storeId, settings] of editedStoreSettings.entries()) {
+        await api.stores.updateStoreSettings(storeId, {
+          off_hours_adjustment_before_hours: settings.beforeHours,
+          off_hours_adjustment_after_hours: settings.afterHours,
+        });
+      }
+
+      // Refresh stores data
+      await fetchStores();
+      setIsStoreSettingsEditMode(false);
+      setEditedStoreSettings(new Map());
+      setStoreSettingsInputs(new Map());
+    } catch (error: any) {
+      console.error("Failed to save store settings:", error);
+      setStoreSettingsError(error.message || "Failed to save store settings.");
     }
   };
 
@@ -1001,12 +1214,41 @@ export default function SettingsPage() {
         {/* Store Setting Tab */}
         {activeTab === "store" && (
           <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">
-              Store Mapping
-            </h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-800">
+                Store Mapping
+              </h3>
+              <div className="flex items-center space-x-2">
+                {isStoreSettingsEditMode ? (
+                  <>
+                    <button
+                      onClick={handleStoreSettingsSave}
+                      className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={handleStoreSettingsEditModeToggle}
+                      className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleStoreSettingsEditModeToggle}
+                    className="p-2 text-gray-600 hover:text-blue-600 transition-colors"
+                  >
+                    <Pencil className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+            </div>
 
-            {storeError && (
-              <div className="text-red-600 text-sm mb-4">{storeError}</div>
+            {(storeError || storeSettingsError) && (
+              <div className="text-red-600 text-sm mb-4">
+                {storeError || storeSettingsError}
+              </div>
             )}
 
             <div className="overflow-x-auto mb-4">
@@ -1022,6 +1264,12 @@ export default function SettingsPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                       Role
                     </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                      Before Hours Adjustment
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                      After Hours Adjustment
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -1031,7 +1279,7 @@ export default function SettingsPage() {
                   {isLoadingStores ? (
                     <tr>
                       <td
-                        colSpan={4}
+                        colSpan={6}
                         className="px-4 py-3 text-center text-gray-500"
                       >
                         Loading stores...
@@ -1040,36 +1288,121 @@ export default function SettingsPage() {
                   ) : stores.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={4}
+                        colSpan={6}
                         className="px-4 py-3 text-center text-gray-500"
                       >
                         No stores found. Add one!
                       </td>
                     </tr>
                   ) : (
-                    stores.map((store) => (
-                      <tr key={store.id}>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
-                          {store.name}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
-                          {store.abbreviation}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
-                          {store.role}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                          {store.role === "owner" && (
-                            <button
-                              onClick={() => handleGenerateInviteCode(store)}
-                              className="px-3 py-1 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs"
-                            >
-                              Generate Code
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                    stores.map((store) => {
+                      const editedSettings = editedStoreSettings.get(store.id);
+                      const inputState = storeSettingsInputs.get(store.id);
+                      const beforeMinutes =
+                        editedSettings?.beforeHours ??
+                        store.off_hours_adjustment_before_hours ??
+                        null;
+                      const afterMinutes =
+                        editedSettings?.afterHours ??
+                        store.off_hours_adjustment_after_hours ??
+                        null;
+
+                      return (
+                        <tr key={store.id}>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                            {store.name}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                            {store.abbreviation}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                            {store.role}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                            {isStoreSettingsEditMode ? (
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={
+                                  inputState?.beforeHours !== undefined
+                                    ? inputState.beforeHours
+                                    : beforeMinutes === null
+                                    ? ""
+                                    : minutesToTimeString(beforeMinutes)
+                                }
+                                onChange={(e) =>
+                                  handleStoreSettingsFieldChange(
+                                    store.id,
+                                    "beforeHours",
+                                    e.target.value
+                                  )
+                                }
+                                onBlur={() =>
+                                  handleStoreSettingsFieldBlur(
+                                    store.id,
+                                    "beforeHours"
+                                  )
+                                }
+                                className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="H:MM"
+                              />
+                            ) : (
+                              <span className="text-gray-900">
+                                {beforeMinutes === null
+                                  ? "-"
+                                  : minutesToTimeString(beforeMinutes)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                            {isStoreSettingsEditMode ? (
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={
+                                  inputState?.afterHours !== undefined
+                                    ? inputState.afterHours
+                                    : afterMinutes === null
+                                    ? ""
+                                    : minutesToTimeString(afterMinutes)
+                                }
+                                onChange={(e) =>
+                                  handleStoreSettingsFieldChange(
+                                    store.id,
+                                    "afterHours",
+                                    e.target.value
+                                  )
+                                }
+                                onBlur={() =>
+                                  handleStoreSettingsFieldBlur(
+                                    store.id,
+                                    "afterHours"
+                                  )
+                                }
+                                className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="H:MM"
+                              />
+                            ) : (
+                              <span className="text-gray-900">
+                                {afterMinutes === null
+                                  ? "-"
+                                  : minutesToTimeString(afterMinutes)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            {store.role === "owner" && (
+                              <button
+                                onClick={() => handleGenerateInviteCode(store)}
+                                className="px-3 py-1 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs"
+                              >
+                                Generate Code
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

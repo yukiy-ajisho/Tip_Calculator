@@ -36,10 +36,10 @@ export function CashTipEditTable({ data }: CashTipEditTableProps) {
       <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
         <thead className="bg-gray-50">
           <tr>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
               Date
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Cash Tips
             </th>
           </tr>
@@ -49,7 +49,7 @@ export function CashTipEditTable({ data }: CashTipEditTableProps) {
             <tr>
               <td
                 colSpan={2}
-                className="px-4 py-3 text-center text-sm text-gray-500"
+                className="px-3 py-2 text-center text-xs text-gray-500"
               >
                 No cash tip data available.
               </td>
@@ -57,10 +57,10 @@ export function CashTipEditTable({ data }: CashTipEditTableProps) {
           ) : (
             displayData.map((record, index) => (
               <tr key={index}>
-                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 border-r border-gray-200">
                   {record.date}
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900">
                   {record.cash_tips}
                 </td>
               </tr>

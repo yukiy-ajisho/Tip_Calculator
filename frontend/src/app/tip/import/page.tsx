@@ -20,6 +20,8 @@ export default function ImportPage() {
   const [isLoadingStores, setIsLoadingStores] = useState(true);
   const [storeError, setStoreError] = useState<string | null>(null);
   const [selectedStore, setSelectedStore] = useState<string>("");
+  const [hasExistingData, setHasExistingData] = useState<boolean>(false);
+  const [isCheckingData, setIsCheckingData] = useState<boolean>(false);
 
   const [workingHoursFile, setWorkingHoursFile] = useState<FileState>({
     file: null,
@@ -49,40 +51,16 @@ export default function ImportPage() {
     data: [],
   });
 
-  // ストア一覧を取得し、データが存在するかチェック
+  // ストア一覧を取得
   useEffect(() => {
-    const fetchStoresAndCheckData = async () => {
+    const fetchStores = async () => {
       try {
         setIsLoadingStores(true);
         setStoreError(null);
-
-        // ストア一覧を取得
         const storesData = await api.stores.getStores();
         setStores(storesData);
-
-        // 3つすべてをチェック
-        const [workingHoursResult, tipResult, cashTipResult] =
-          await Promise.all([
-            api.tips.getFormattedWorkingHours(),
-            api.tips.getFormattedTipData(),
-            api.tips.getFormattedCashTip(),
-          ]);
-
-        // 3つすべてが存在する場合のみ /tip/edit にリダイレクト
-        if (
-          workingHoursResult.success &&
-          workingHoursResult.data.length > 0 &&
-          tipResult.success &&
-          tipResult.data.length > 0 &&
-          cashTipResult.success &&
-          cashTipResult.data.length > 0
-        ) {
-          // データが存在する場合、強制的に /tip/edit にリダイレクト
-          router.push("/tip/edit");
-          return;
-        }
       } catch (error) {
-        console.error("Failed to fetch stores or check data:", error);
+        console.error("Failed to fetch stores:", error);
         setStoreError(
           error instanceof Error ? error.message : "Failed to load stores"
         );
@@ -91,8 +69,39 @@ export default function ImportPage() {
       }
     };
 
-    fetchStoresAndCheckData();
-  }, [router]);
+    fetchStores();
+  }, []);
+
+  // 店舗選択時にデータが存在するかチェック
+  useEffect(() => {
+    const checkExistingData = async () => {
+      if (!selectedStore) {
+        setHasExistingData(false);
+        return;
+      }
+
+      try {
+        setIsCheckingData(true);
+        const workingHoursResult = await api.tips.getFormattedWorkingHours(
+          selectedStore
+        );
+
+        // formatted_working_hoursにデータが存在するかチェック
+        if (workingHoursResult.success && workingHoursResult.data.length > 0) {
+          setHasExistingData(true);
+        } else {
+          setHasExistingData(false);
+        }
+      } catch (error) {
+        console.error("Failed to check existing data:", error);
+        setHasExistingData(false);
+      } finally {
+        setIsCheckingData(false);
+      }
+    };
+
+    checkExistingData();
+  }, [selectedStore]);
 
   const handleWorkingHoursFileSelect = (file: File, data: any[]) => {
     setWorkingHoursFile({
@@ -165,6 +174,32 @@ export default function ImportPage() {
     }
   };
 
+  const handleEditExisting = () => {
+    // 既存データを編集する場合、editページにリダイレクト
+    router.push(`/tip/edit?storeId=${selectedStore}`);
+  };
+
+  const handleImportNew = async () => {
+    // 確認ダイアログを表示
+    const confirmed = window.confirm(
+      "Existing data found. Someone may be editing this data. Do you want to overwrite with new data?"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      // 既存データを削除
+      await api.tips.deleteCalculation(selectedStore);
+      setHasExistingData(false);
+    } catch (error) {
+      console.error("Failed to delete existing data:", error);
+      alert("Failed to delete existing data. Please try again.");
+      return;
+    }
+  };
+
   const handleNext = async () => {
     if (
       !workingHoursFile.file ||
@@ -208,8 +243,8 @@ export default function ImportPage() {
         isUploadedToSupabase: true,
       }));
 
-      // 成功したら /tip/edit に遷移
-      router.push("/tip/edit");
+      // 成功したら /tip/edit に遷移（店舗IDをURLパラメータで渡す）
+      router.push(`/tip/edit?storeId=${selectedStore}`);
     } catch (error) {
       console.error("Error formatting CSV data:", error);
       // TODO: エラーハンドリング（エラーメッセージを表示するなど）
@@ -236,18 +271,18 @@ export default function ImportPage() {
     <div className="p-8">
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-semibold text-gray-800">
+          <h2 className="text-xl font-semibold text-gray-800">
             Import CSV Files
           </h2>
           <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-gray-700">
+            <label className="text-xs font-medium text-gray-700">
               Select Store:
             </label>
             <select
               value={selectedStore}
               onChange={(e) => setSelectedStore(e.target.value)}
               disabled={isLoadingStores}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+              className="px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
               <option value="">
                 {isLoadingStores
@@ -264,6 +299,29 @@ export default function ImportPage() {
             </select>
           </div>
         </div>
+
+        {/* Existing data message and buttons (shown right after store selection) */}
+        {hasExistingData && selectedStore && (
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center gap-4">
+            <p className="text-sm text-yellow-800 flex-1">
+              Existing data found. Someone may be editing this data.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleEditExisting}
+                className="px-4 py-1.5 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+              >
+                Edit Existing Data
+              </button>
+              <button
+                onClick={handleImportNew}
+                className="px-4 py-1.5 text-sm rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors"
+              >
+                Import New Data
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Working Hours CSV */}
         <CsvFileUpload
@@ -297,9 +355,9 @@ export default function ImportPage() {
         <div className="flex justify-end mt-8">
           <button
             onClick={handleNext}
-            disabled={!isNextEnabled}
-            className={`px-6 py-2 rounded-lg transition-colors ${
-              isNextEnabled
+            disabled={!isNextEnabled || hasExistingData}
+            className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+              isNextEnabled && !hasExistingData
                 ? "bg-blue-500 text-white hover:bg-blue-600"
                 : "bg-gray-300 text-gray-500 cursor-not-allowed"
             }`}

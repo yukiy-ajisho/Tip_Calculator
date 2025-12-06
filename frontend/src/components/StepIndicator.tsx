@@ -22,7 +22,7 @@ export function StepIndicator() {
   };
 
   return (
-    <div className="w-full bg-gray-50 py-8">
+    <div className="w-full bg-gray-50 py-4">
       <div className="max-w-4xl mx-auto px-4">
         <div className="flex items-center">
           {steps.map((step, index) => {
@@ -37,7 +37,7 @@ export function StepIndicator() {
                   {/* 丸と数字 */}
                   <div className="relative z-10">
                     <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ${
+                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
                         isActive
                           ? "bg-blue-500"
                           : isCompleted
@@ -46,7 +46,7 @@ export function StepIndicator() {
                       }`}
                     >
                       <span
-                        className={`text-lg font-semibold ${
+                        className={`text-sm font-semibold ${
                           isActive || isCompleted
                             ? "text-white"
                             : "text-blue-500"
@@ -60,20 +60,20 @@ export function StepIndicator() {
                   {/* 接続線（各ステップの右側、最後のステップ以外） */}
                   {index < steps.length - 1 && (
                     <div
-                      className={`absolute top-5 left-1/2 h-0.5 ${
+                      className={`absolute top-4 left-1/2 h-0.5 ${
                         isCompleted ? "bg-blue-500" : "bg-blue-300"
                       }`}
                       style={{
-                        width: "calc(100% - 20px)",
-                        marginLeft: "20px",
+                        width: "calc(100% - 16px)",
+                        marginLeft: "16px",
                       }}
                     />
                   )}
 
                   {/* ラベル */}
-                  <div className="mt-3">
+                  <div className="mt-2">
                     <span
-                      className={`text-sm font-medium ${
+                      className={`text-xs font-medium ${
                         isActive
                           ? "text-blue-700"
                           : isCompleted
