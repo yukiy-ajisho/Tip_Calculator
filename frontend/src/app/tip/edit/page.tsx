@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { WorkingHoursEditTable } from "@/components/WorkingHoursEditTable";
 import { TipEditTable } from "@/components/TipEditTable";
 import { CashTipEditTable } from "@/components/CashTipEditTable";
@@ -14,6 +14,8 @@ import {
 
 export default function EditPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const storeId = searchParams.get("storeId");
 
   // タブ切り替えの状態
   const [activeTab, setActiveTab] = useState<
@@ -31,20 +33,37 @@ export default function EditPage() {
 
   // Working Hours CSV の編集モード状態
   const [isEditingWorkingHours, setIsEditingWorkingHours] = useState(false);
+  const [incompleteRecordsCount, setIncompleteRecordsCount] = useState(0);
+  const [originalWorkingHoursData, setOriginalWorkingHoursData] = useState<
+    FormattedWorkingHours[]
+  >([]);
+  const [isCalculating, setIsCalculating] = useState(false);
 
-  // ページ読み込み時にSupabaseからデータ取得（3つすべてをチェック）
+  // Tip Data の編集モード状態
+  const [isEditingTips, setIsEditingTips] = useState(false);
+  const [originalTipData, setOriginalTipData] = useState<FormattedTipData[]>(
+    []
+  );
+
+  // ページ読み込み時にSupabaseからデータ取得
   useEffect(() => {
     const fetchData = async () => {
+      // URLパラメータにstoreIdがない場合、importページにリダイレクト
+      if (!storeId) {
+        router.push("/tip/import");
+        return;
+      }
+
       try {
         setIsLoading(true);
         setError(null);
 
-        // 3つすべてを取得
+        // 指定された店舗IDでデータを取得
         const [workingHoursResult, tipResult, cashTipResult] =
           await Promise.all([
-            api.tips.getFormattedWorkingHours(),
-            api.tips.getFormattedTipData(),
-            api.tips.getFormattedCashTip(),
+            api.tips.getFormattedWorkingHours(storeId),
+            api.tips.getFormattedTipData(storeId),
+            api.tips.getFormattedCashTip(storeId),
           ]);
 
         // 一つでも欠けていたら /tip/import にリダイレクト
@@ -62,8 +81,18 @@ export default function EditPage() {
 
         // データを設定
         setWorkingHoursData(workingHoursResult.data);
+        setOriginalWorkingHoursData(
+          JSON.parse(JSON.stringify(workingHoursResult.data))
+        );
         setTipData(tipResult.data);
+        setOriginalTipData(JSON.parse(JSON.stringify(tipResult.data)));
         setCashTipData(cashTipResult.data);
+
+        // 初期のincomplete records数を計算（is_completeで判定）
+        const initialIncompleteCount = workingHoursResult.data.filter(
+          (record) => !record.is_complete
+        ).length;
+        setIncompleteRecordsCount(initialIncompleteCount);
       } catch (err) {
         console.error("Error fetching formatted data:", err);
         setError(err instanceof Error ? err.message : "Failed to load data");
@@ -75,16 +104,146 @@ export default function EditPage() {
     };
 
     fetchData();
-  }, [router]);
+  }, [router, storeId]);
 
-  const handleBack = () => {
-    router.push("/tip/import");
+  const handleBack = async () => {
+    // URLパラメータから店舗IDを取得
+    if (!storeId) {
+      router.push("/tip/import");
+      return;
+    }
+
+    try {
+      // 既存データを削除（確認ダイアログなし）
+      await api.tips.deleteCalculation(storeId);
+      // 削除後、importページに戻る
+      router.push("/tip/import");
+    } catch (error) {
+      console.error("Failed to delete calculation data:", error);
+      alert("データの削除に失敗しました。もう一度お試しください。");
+    }
   };
 
-  const handleNext = () => {
-    // 将来的には編集データをSupabaseに保存
-    // await saveToSupabase(workingHoursData, tipData);
-    router.push("/tip/calculate");
+  const handleSaveWorkingHours = async () => {
+    try {
+      // 変更されたレコードのみを抽出
+      const changedRecords = workingHoursData.filter((record) => {
+        const original = originalWorkingHoursData.find(
+          (r) => r.id === record.id
+        );
+        if (!original) return true; // 新規レコード
+
+        // いずれかのフィールドが変更されているかチェック
+        return (
+          record.name !== original.name ||
+          record.date !== original.date ||
+          record.start !== original.start ||
+          record.end !== original.end ||
+          record.role !== original.role ||
+          record.is_complete !== original.is_complete ||
+          record.is_complete_on_import !== original.is_complete_on_import
+        );
+      });
+
+      // 変更されたレコードのみを送信
+      if (changedRecords.length > 0) {
+        await api.tips.updateFormattedWorkingHours(changedRecords);
+      }
+
+      // 保存後、元のデータを更新
+      setOriginalWorkingHoursData(JSON.parse(JSON.stringify(workingHoursData)));
+      setIsEditingWorkingHours(false);
+    } catch (error) {
+      console.error("Failed to save working hours:", error);
+      alert("Failed to save working hours. Please try again.");
+    }
+  };
+
+  const handleCancelWorkingHours = () => {
+    // 元のデータに復元
+    setWorkingHoursData(JSON.parse(JSON.stringify(originalWorkingHoursData)));
+    setIsEditingWorkingHours(false);
+    // incomplete records数を再計算（is_completeで判定）
+    const incompleteCount = originalWorkingHoursData.filter(
+      (record) => !record.is_complete
+    ).length;
+    setIncompleteRecordsCount(incompleteCount);
+  };
+
+  // Tip Data handlers
+  const handleTipDataChange = (updatedData: FormattedTipData[]) => {
+    setTipData(updatedData);
+  };
+
+  const handleSaveTips = async () => {
+    try {
+      // 変更されたレコードのみを抽出
+      const changedRecords = tipData.filter((record) => {
+        if (!record.id) return false; // IDがないレコードはスキップ
+        const original = originalTipData.find((r) => r.id === record.id);
+        if (!original) return false; // 新規レコードはスキップ（通常は発生しない）
+
+        // payment_timeが変更されているかチェック
+        return record.payment_time !== original.payment_time;
+      });
+
+      // 変更されたレコードのみを送信
+      if (changedRecords.length > 0) {
+        await Promise.all(
+          changedRecords.map((record) => {
+            if (!record.id) return Promise.resolve();
+            return api.tips.updateFormattedTipData(
+              record.id,
+              record.payment_time
+            );
+          })
+        );
+      }
+
+      // 元データを更新
+      setOriginalTipData(JSON.parse(JSON.stringify(tipData)));
+      setIsEditingTips(false);
+    } catch (error) {
+      console.error("Failed to save tips:", error);
+      alert("Failed to save tips. Please try again.");
+    }
+  };
+
+  const handleCancelTips = () => {
+    setTipData(JSON.parse(JSON.stringify(originalTipData)));
+    setIsEditingTips(false);
+  };
+
+  const handleNext = async () => {
+    // storeIdが存在しない場合のエラーハンドリング
+    if (!storeId) {
+      alert("Store ID is missing. Please go back to import page.");
+      router.push("/tip/import");
+      return;
+    }
+
+    try {
+      // ローディング状態を設定
+      setIsCalculating(true);
+
+      // APIを呼び出して計算を実行
+      const response = await api.tips.calculate(storeId);
+
+      // 成功時の処理
+      if (response.success) {
+        // 計算結果ページにリダイレクト
+        router.push(`/tip/calculate?calculationId=${response.calculationId}`);
+      }
+    } catch (error) {
+      console.error("Failed to calculate tips:", error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to calculate tips. Please try again."
+      );
+    } finally {
+      setIsCalculating(false);
+    }
   };
 
   return (
@@ -94,7 +253,7 @@ export default function EditPage() {
         <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6 w-fit">
           <button
             onClick={() => setActiveTab("workingHours")}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
               activeTab === "workingHours"
                 ? "bg-white text-blue-700 shadow-sm"
                 : "text-gray-600 hover:text-gray-900"
@@ -104,7 +263,7 @@ export default function EditPage() {
           </button>
           <button
             onClick={() => setActiveTab("tip")}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
               activeTab === "tip"
                 ? "bg-white text-blue-700 shadow-sm"
                 : "text-gray-600 hover:text-gray-900"
@@ -114,7 +273,7 @@ export default function EditPage() {
           </button>
           <button
             onClick={() => setActiveTab("cashTip")}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
               activeTab === "cashTip"
                 ? "bg-white text-blue-700 shadow-sm"
                 : "text-gray-600 hover:text-gray-900"
@@ -127,34 +286,41 @@ export default function EditPage() {
         {/* Working Hours CSV タブのコンテンツ */}
         {activeTab === "workingHours" && (
           <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-            {/* Edit/Saveボタン */}
-            <div className="flex justify-end mb-4">
-              <button
-                onClick={() => {
-                  if (isEditingWorkingHours) {
-                    // Save処理（将来的にはSupabaseに保存）
-                    // TODO: 保存処理を実装
-                    setIsEditingWorkingHours(false);
-                  } else {
-                    setIsEditingWorkingHours(true);
-                  }
-                }}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  isEditingWorkingHours
-                    ? "bg-green-500 text-white hover:bg-green-600"
-                    : "bg-blue-500 text-white hover:bg-blue-600"
-                }`}
-              >
-                {isEditingWorkingHours ? "Save" : "Edit"}
-              </button>
+            {/* Edit/Save/Cancelボタン */}
+            <div className="flex justify-end gap-2 mb-4">
+              {isEditingWorkingHours ? (
+                <>
+                  <button
+                    onClick={handleCancelWorkingHours}
+                    className="px-3 py-1.5 text-sm rounded-lg font-medium transition-colors bg-gray-500 text-white hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveWorkingHours}
+                    className="px-3 py-1.5 text-sm rounded-lg font-medium transition-colors bg-green-500 text-white hover:bg-green-600"
+                  >
+                    Save
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setIsEditingWorkingHours(true)}
+                  className="px-3 py-1.5 text-sm rounded-lg font-medium transition-colors bg-blue-500 text-white hover:bg-blue-600"
+                >
+                  Edit
+                </button>
+              )}
             </div>
 
             {isLoading ? (
-              <p className="text-gray-600">Loading working hours data...</p>
+              <p className="text-sm text-gray-600">
+                Loading working hours data...
+              </p>
             ) : error ? (
-              <p className="text-red-600">Error: {error}</p>
+              <p className="text-sm text-red-600">Error: {error}</p>
             ) : workingHoursData.length === 0 ? (
-              <p className="text-gray-500">
+              <p className="text-sm text-gray-500">
                 No working hours data available. Please import a file first.
               </p>
             ) : (
@@ -162,6 +328,8 @@ export default function EditPage() {
                 data={workingHoursData}
                 isEditing={isEditingWorkingHours}
                 onDataChange={setWorkingHoursData}
+                onCancel={handleCancelWorkingHours}
+                onIncompleteCountChange={setIncompleteRecordsCount}
               />
             )}
           </div>
@@ -170,16 +338,47 @@ export default function EditPage() {
         {/* Tip CSV タブのコンテンツ */}
         {activeTab === "tip" && (
           <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+            {/* Edit/Save/Cancelボタン */}
+            <div className="flex justify-end gap-2 mb-4">
+              {isEditingTips ? (
+                <>
+                  <button
+                    onClick={handleCancelTips}
+                    className="px-3 py-1.5 text-sm rounded-lg font-medium transition-colors bg-gray-500 text-white hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveTips}
+                    className="px-3 py-1.5 text-sm rounded-lg font-medium transition-colors bg-green-500 text-white hover:bg-green-600"
+                  >
+                    Save
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setIsEditingTips(true)}
+                  className="px-3 py-1.5 text-sm rounded-lg font-medium transition-colors bg-blue-500 text-white hover:bg-blue-600"
+                >
+                  Edit
+                </button>
+              )}
+            </div>
+
             {isLoading ? (
-              <p className="text-gray-600">Loading tip data...</p>
+              <p className="text-sm text-gray-600">Loading tip data...</p>
             ) : error ? (
-              <p className="text-red-600">Error: {error}</p>
+              <p className="text-sm text-red-600">Error: {error}</p>
             ) : tipData.length === 0 ? (
-              <p className="text-gray-500">
+              <p className="text-sm text-gray-500">
                 No tip data available. Please import a file first.
               </p>
             ) : (
-              <TipEditTable data={tipData} />
+              <TipEditTable
+                data={tipData}
+                isEditing={isEditingTips}
+                onDataChange={handleTipDataChange}
+              />
             )}
           </div>
         )}
@@ -188,11 +387,11 @@ export default function EditPage() {
         {activeTab === "cashTip" && (
           <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
             {isLoading ? (
-              <p className="text-gray-600">Loading cash tip data...</p>
+              <p className="text-sm text-gray-600">Loading cash tip data...</p>
             ) : error ? (
-              <p className="text-red-600">Error: {error}</p>
+              <p className="text-sm text-red-600">Error: {error}</p>
             ) : cashTipData.length === 0 ? (
-              <p className="text-gray-500">
+              <p className="text-sm text-gray-500">
                 No cash tip data available. Please import a file first.
               </p>
             ) : (
@@ -205,15 +404,20 @@ export default function EditPage() {
         <div className="flex justify-between mt-8">
           <button
             onClick={handleBack}
-            className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+            className="px-4 py-1.5 text-sm bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
           >
             Back
           </button>
           <button
             onClick={handleNext}
-            className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            disabled={incompleteRecordsCount > 0 || isCalculating}
+            className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+              incompleteRecordsCount > 0 || isCalculating
+                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                : "bg-blue-500 text-white hover:bg-blue-600"
+            }`}
           >
-            Next
+            {isCalculating ? "Calculating..." : "Next"}
           </button>
         </div>
       </div>

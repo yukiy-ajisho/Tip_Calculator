@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "13.0.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       formatted_cash_tip: {
@@ -53,7 +78,9 @@ export type Database = {
         Row: {
           created_at: string | null
           id: string
+          is_adjusted: boolean
           order_date: string
+          original_payment_time: string | null
           payment_time: string | null
           stores_id: string
           tips: number
@@ -62,7 +89,9 @@ export type Database = {
         Insert: {
           created_at?: string | null
           id?: string
+          is_adjusted?: boolean
           order_date: string
+          original_payment_time?: string | null
           payment_time?: string | null
           stores_id: string
           tips: number
@@ -71,7 +100,9 @@ export type Database = {
         Update: {
           created_at?: string | null
           id?: string
+          is_adjusted?: boolean
           order_date?: string
+          original_payment_time?: string | null
           payment_time?: string | null
           stores_id?: string
           tips?: number
@@ -93,6 +124,7 @@ export type Database = {
           date: string | null
           end: string | null
           id: string
+          is_complete: boolean
           is_complete_on_import: boolean
           name: string
           role: string | null
@@ -105,6 +137,7 @@ export type Database = {
           date?: string | null
           end?: string | null
           id?: string
+          is_complete?: boolean
           is_complete_on_import?: boolean
           name: string
           role?: string | null
@@ -117,6 +150,7 @@ export type Database = {
           date?: string | null
           end?: string | null
           id?: string
+          is_complete?: boolean
           is_complete_on_import?: boolean
           name?: string
           role?: string | null
@@ -136,6 +170,7 @@ export type Database = {
       }
       role_mappings: {
         Row: {
+          actual_role_name: string | null
           created_at: string | null
           id: string
           role_name: string
@@ -145,6 +180,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          actual_role_name?: string | null
           created_at?: string | null
           id?: string
           role_name: string
@@ -154,6 +190,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          actual_role_name?: string | null
           created_at?: string | null
           id?: string
           role_name?: string
@@ -207,19 +244,77 @@ export type Database = {
           },
         ]
       }
+      store_invitations: {
+        Row: {
+          code: string
+          created_at: string | null
+          created_by: string
+          expires_at: string
+          id: string
+          store_id: string
+          used_at: string | null
+          used_by: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string | null
+          created_by: string
+          expires_at: string
+          id?: string
+          store_id: string
+          used_at?: string | null
+          used_by?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string | null
+          created_by?: string
+          expires_at?: string
+          id?: string
+          store_id?: string
+          used_at?: string | null
+          used_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "store_invitations_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_invitations_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "store_invitations_used_by_fkey"
+            columns: ["used_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       store_users: {
         Row: {
           id: string
+          role: string
           store_id: string
           user_id: string
         }
         Insert: {
           id?: string
+          role?: string
           store_id: string
           user_id: string
         }
         Update: {
           id?: string
+          role?: string
           store_id?: string
           user_id?: string
         }
@@ -246,6 +341,8 @@ export type Database = {
           created_at: string | null
           id: string
           name: string
+          off_hours_adjustment_after_hours: number | null
+          off_hours_adjustment_before_hours: number | null
           updated_at: string | null
         }
         Insert: {
@@ -253,6 +350,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           name: string
+          off_hours_adjustment_after_hours?: number | null
+          off_hours_adjustment_before_hours?: number | null
           updated_at?: string | null
         }
         Update: {
@@ -260,6 +359,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           name?: string
+          off_hours_adjustment_after_hours?: number | null
+          off_hours_adjustment_before_hours?: number | null
           updated_at?: string | null
         }
         Relationships: []
@@ -269,6 +370,7 @@ export type Database = {
           calculation_id: string
           cash_tips: number | null
           created_at: string | null
+          date: string | null
           id: string
           name: string | null
           tips: number | null
@@ -277,6 +379,7 @@ export type Database = {
           calculation_id: string
           cash_tips?: number | null
           created_at?: string | null
+          date?: string | null
           id?: string
           name?: string | null
           tips?: number | null
@@ -285,6 +388,7 @@ export type Database = {
           calculation_id?: string
           cash_tips?: number | null
           created_at?: string | null
+          date?: string | null
           id?: string
           name?: string | null
           tips?: number | null
@@ -369,7 +473,33 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      adjust_off_hours_tips: {
+        Args: {
+          p_period_end: string
+          p_period_start: string
+          p_store_id: string
+        }
+        Returns: undefined
+      }
+      calculate_tips:
+        | {
+            Args: {
+              p_calculation_id: string
+              p_period_end: string
+              p_period_start: string
+              p_store_id: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: { p_calculation_id: string; p_store_id: string }
+            Returns: undefined
+          }
+      cleanup_expired_invitations: { Args: never; Returns: undefined }
+      revert_calculation: {
+        Args: { p_calculation_id: string }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never
@@ -498,9 +628,10 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },
 } as const
-A new version of Supabase CLI is available: v2.65.2 (currently installed v2.62.5)
-We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
