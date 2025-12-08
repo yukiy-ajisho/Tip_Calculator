@@ -162,6 +162,7 @@ function TimeInput({
   // Update segments when value prop changes (from outside)
   useEffect(() => {
     if (!isFocused) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSegments(parseTimeString(value));
     }
   }, [value, isFocused]);

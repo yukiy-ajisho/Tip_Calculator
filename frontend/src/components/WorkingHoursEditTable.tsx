@@ -304,6 +304,7 @@ function TimeInput({
   // Note: setState in useEffect is intentional to sync segments with value prop
   useEffect(() => {
     if (!isFocused) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSegments(parseTimeString(value));
     }
   }, [value, isFocused]);
@@ -592,6 +593,7 @@ function DateInput({
   // Note: setState in useEffect is intentional to sync segments with value prop
   useEffect(() => {
     if (!isFocused) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSegments(parseDateString(value));
     }
   }, [value, isFocused]);
