@@ -85,7 +85,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefix frontend
 
       - name: Install Vercel CLI
         run: npm i -g vercel@latest
