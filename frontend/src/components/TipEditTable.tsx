@@ -120,13 +120,13 @@ function buildTimeString(segments: Segment[]): string {
  * Set selection range on input element
  */
 function setSelection(
-  inputRef: React.RefObject<HTMLInputElement>,
+  inputRef: React.RefObject<HTMLInputElement | null>,
   segment?: Segment
 ) {
   if (!inputRef.current || !segment) return;
 
   requestAnimationFrame(() => {
-    if (document.activeElement === inputRef.current) {
+    if (inputRef.current && document.activeElement === inputRef.current) {
       inputRef.current.setSelectionRange(
         segment.index,
         segment.index + segment.symbols.length,
