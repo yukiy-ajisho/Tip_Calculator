@@ -15,11 +15,10 @@ interface CashTipEditTableProps {
  * Convert date string (YYYY-MM-DD) to MM/DD/YY format
  */
 function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  const month = (date.getMonth() + 1).toString().padStart(2, "0");
-  const day = date.getDate().toString().padStart(2, "0");
-  const year = date.getFullYear().toString().slice(-2);
-  return `${month}/${day}/${year}`;
+  // 文字列を直接分割してタイムゾーンの影響を避ける
+  const [year, month, day] = dateString.split("-");
+  if (!year || !month || !day) return dateString;
+  return `${month}/${day}/${year.slice(-2)}`;
 }
 
 export function CashTipEditTable({ data }: CashTipEditTableProps) {

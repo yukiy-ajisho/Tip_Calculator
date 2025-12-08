@@ -13,6 +13,8 @@ import {
   FormatCashTipResponse,
   GetFormattedCashTipResponse,
   GetCalculationResultsResponse,
+  GetRecordsResponse,
+  GetCalculationStatusResponse,
 } from "@/types";
 import { getErrorMessage } from "@/lib/is-api-error";
 
@@ -292,12 +294,21 @@ export const api = {
         `/api/tips/calculation-results?calculationId=${calculationId}`
       );
     },
-    deleteFormattedData: (storeId: string): Promise<{ success: boolean }> => {
+    deleteFormattedData: (
+      calculationId: string
+    ): Promise<{ success: boolean }> => {
       return apiRequest<{ success: boolean }>(
-        `/api/tips/formatted-data?storeId=${storeId}`,
+        `/api/tips/formatted-data?calculationId=${calculationId}`,
         {
           method: "DELETE",
         }
+      );
+    },
+    getCalculationStatus: (
+      storeId: string
+    ): Promise<GetCalculationStatusResponse> => {
+      return apiRequest<GetCalculationStatusResponse>(
+        `/api/tips/calculation-status?storeId=${storeId}`
       );
     },
     revertCalculation: (
@@ -309,6 +320,9 @@ export const api = {
           method: "POST",
         }
       );
+    },
+    getRecords: (): Promise<GetRecordsResponse> => {
+      return apiRequest<GetRecordsResponse>("/api/tips/records");
     },
   },
 };

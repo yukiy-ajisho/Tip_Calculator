@@ -20,7 +20,10 @@ export default function ImportPage() {
   const [isLoadingStores, setIsLoadingStores] = useState(true);
   const [storeError, setStoreError] = useState<string | null>(null);
   const [selectedStore, setSelectedStore] = useState<string>("");
-  const [hasExistingData, setHasExistingData] = useState<boolean>(false);
+  const [calculationStatus, setCalculationStatus] = useState<{
+    status: "processing" | "completed" | null;
+    calculationId: string | null;
+  }>({ status: null, calculationId: null });
   const [isCheckingData, setIsCheckingData] = useState<boolean>(false);
 
   const [workingHoursFile, setWorkingHoursFile] = useState<FileState>({
@@ -76,25 +79,25 @@ export default function ImportPage() {
   useEffect(() => {
     const checkExistingData = async () => {
       if (!selectedStore) {
-        setHasExistingData(false);
+        setCalculationStatus({ status: null, calculationId: null });
         return;
       }
 
       try {
         setIsCheckingData(true);
-        const workingHoursResult = await api.tips.getFormattedWorkingHours(
-          selectedStore
-        );
+        const response = await api.tips.getCalculationStatus(selectedStore);
 
-        // formatted_working_hoursにデータが存在するかチェック
-        if (workingHoursResult.success && workingHoursResult.data.length > 0) {
-          setHasExistingData(true);
+        if (response.success) {
+          setCalculationStatus({
+            status: response.status,
+            calculationId: response.calculationId,
+          });
         } else {
-          setHasExistingData(false);
+          setCalculationStatus({ status: null, calculationId: null });
         }
       } catch (error) {
         console.error("Failed to check existing data:", error);
-        setHasExistingData(false);
+        setCalculationStatus({ status: null, calculationId: null });
       } finally {
         setIsCheckingData(false);
       }
@@ -175,8 +178,19 @@ export default function ImportPage() {
   };
 
   const handleEditExisting = () => {
-    // 既存データを編集する場合、editページにリダイレクト
-    router.push(`/tip/edit?storeId=${selectedStore}`);
+    // statusに応じてリダイレクト先を変更
+    if (
+      calculationStatus.status === "completed" &&
+      calculationStatus.calculationId
+    ) {
+      // completedの場合、calculateページにリダイレクト
+      router.push(
+        `/tip/calculate?calculationId=${calculationStatus.calculationId}`
+      );
+    } else if (calculationStatus.status === "processing") {
+      // processingの場合、editページにリダイレクト
+      router.push(`/tip/edit?storeId=${selectedStore}`);
+    }
   };
 
   const handleImportNew = async () => {
@@ -192,7 +206,7 @@ export default function ImportPage() {
     try {
       // 既存データを削除
       await api.tips.deleteCalculation(selectedStore);
-      setHasExistingData(false);
+      setCalculationStatus({ status: null, calculationId: null });
     } catch (error) {
       console.error("Failed to delete existing data:", error);
       alert("Failed to delete existing data. Please try again.");
@@ -301,17 +315,21 @@ export default function ImportPage() {
         </div>
 
         {/* Existing data message and buttons (shown right after store selection) */}
-        {hasExistingData && selectedStore && (
+        {calculationStatus.status && selectedStore && (
           <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center gap-4">
             <p className="text-sm text-yellow-800 flex-1">
-              Existing data found. Someone may be editing this data.
+              {calculationStatus.status === "completed"
+                ? "Calculation results are available. You can preview the results or import new data."
+                : "Existing data found. Someone may be editing this data."}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={handleEditExisting}
                 className="px-4 py-1.5 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
               >
-                Edit Existing Data
+                {calculationStatus.status === "completed"
+                  ? "Preview Results"
+                  : "Edit Existing Data"}
               </button>
               <button
                 onClick={handleImportNew}
@@ -355,9 +373,9 @@ export default function ImportPage() {
         <div className="flex justify-end mt-8">
           <button
             onClick={handleNext}
-            disabled={!isNextEnabled || hasExistingData}
+            disabled={!isNextEnabled || !!calculationStatus.status}
             className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-              isNextEnabled && !hasExistingData
+              isNextEnabled && !calculationStatus.status
                 ? "bg-blue-500 text-white hover:bg-blue-600"
                 : "bg-gray-300 text-gray-500 cursor-not-allowed"
             }`}

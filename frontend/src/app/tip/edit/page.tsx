@@ -126,8 +126,26 @@ export default function EditPage() {
 
   const handleSaveWorkingHours = async () => {
     try {
-      // 変更されたレコードのみを抽出
-      const changedRecords = workingHoursData.filter((record) => {
+      // 1. 全レコードの完全性をチェックしてis_completeを更新
+      const updatedData = workingHoursData.map((record) => {
+        const isComplete = !!(
+          record.name &&
+          record.date &&
+          record.start &&
+          record.end &&
+          record.role
+        );
+        return {
+          ...record,
+          is_complete: isComplete,
+        };
+      });
+
+      // 2. workingHoursDataを更新（完全性に基づいて再分類される）
+      setWorkingHoursData(updatedData);
+
+      // 3. 変更されたレコードのみを抽出
+      const changedRecords = updatedData.filter((record) => {
         const original = originalWorkingHoursData.find(
           (r) => r.id === record.id
         );
@@ -145,13 +163,13 @@ export default function EditPage() {
         );
       });
 
-      // 変更されたレコードのみを送信
+      // 4. 変更されたレコードのみを送信
       if (changedRecords.length > 0) {
         await api.tips.updateFormattedWorkingHours(changedRecords);
       }
 
-      // 保存後、元のデータを更新
-      setOriginalWorkingHoursData(JSON.parse(JSON.stringify(workingHoursData)));
+      // 5. 保存後、元のデータを更新
+      setOriginalWorkingHoursData(JSON.parse(JSON.stringify(updatedData)));
       setIsEditingWorkingHours(false);
     } catch (error) {
       console.error("Failed to save working hours:", error);
@@ -259,7 +277,7 @@ export default function EditPage() {
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
-            Working Hours CSV
+            Incomplete Records
           </button>
           <button
             onClick={() => setActiveTab("tip")}
@@ -269,7 +287,7 @@ export default function EditPage() {
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
-            Tip CSV
+            Outside Range Tip
           </button>
           <button
             onClick={() => setActiveTab("cashTip")}
