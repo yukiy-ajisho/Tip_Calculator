@@ -645,6 +645,15 @@ function formatWorkingHoursData(csvData) {
     const { name, date, clockInTime, clockOutTime, role, breaks } =
       pendingShift;
 
+    console.log(
+      `[DEBUG] processPendingShift: name=${name}, date=${date}, breaks.length=${breaks.length}`
+    );
+    if (breaks.length > 0) {
+      console.log(
+        `[DEBUG] Breaks: ${breaks.map((b) => `${b.start}-${b.end}`).join(", ")}`
+      );
+    }
+
     // 休憩情報を開始時間でソート
     const sortedBreaks = breaks.sort((a, b) => {
       const timeA = convertTo24HourTime(a.start);
@@ -692,6 +701,14 @@ function formatWorkingHoursData(csvData) {
       end: clockOutTime,
       role: role || "",
     });
+
+    console.log(
+      `[DEBUG] processPendingShift generated ${
+        1 + sortedBreaks.length
+      } records (1 before first break + ${
+        sortedBreaks.length - 1
+      } between breaks + 1 after last break)`
+    );
   };
 
   for (let i = headerRowIndex + 1; i < csvData.length; i++) {
@@ -699,9 +716,15 @@ function formatWorkingHoursData(csvData) {
 
     // 空行、区切り行、Totals行をスキップ
     const nameValue = row[nameIndex]?.trim() || "";
+    // breakStartまたはbreakEndが存在する場合は、追加の休憩行の可能性があるためスキップしない
+    const breakStart =
+      breakStartIndex !== -1 ? row[breakStartIndex]?.trim() || "" : "";
+    const breakEnd =
+      breakEndIndex !== -1 ? row[breakEndIndex]?.trim() || "" : "";
+    const hasBreakData = breakStart !== "" || breakEnd !== "";
     if (
       row.length === 0 ||
-      row[0].trim() === "" ||
+      (row[0].trim() === "" && !hasBreakData) ||
       row[0].trim() === "-" ||
       row[0].trim().startsWith("Totals") ||
       nameValue.startsWith("Totals")
@@ -738,31 +761,40 @@ function formatWorkingHoursData(csvData) {
     }
 
     // シフトデータの行（引用符は既に除去済み）
+    // breakStartとbreakEndは717行目で既に取得済み
     const clockInDate = row[clockInDateIndex]?.trim() || "";
     const clockInTime = row[clockInTimeIndex]?.trim() || "";
     const clockOutTime = row[clockOutTimeIndex]?.trim() || "";
-    const breakStart = row[breakStartIndex]?.trim() || "";
-    const breakEnd = row[breakEndIndex]?.trim() || "";
     const role = row[roleIndex]?.trim() || "";
 
-    // 従業員名を取得（現在の行にない場合は、前回の従業員名を使用）
-    const employeeName = name && name !== "" ? name : currentName;
-    if (!employeeName) {
-      continue;
-    }
-
-    // clockInDateが空の場合
+    // clockInDateが空の場合（employeeNameのチェックより前に処理）
     if (!clockInDate || clockInDate === "") {
+      console.log(
+        `[DEBUG] clockInDate is empty, row ${i}: name="${name}", breakStart="${breakStart}", breakEnd="${breakEnd}", pendingShift=${
+          pendingShift ? "exists" : "null"
+        }`
+      );
       // 保留中のシフトがある場合、追加の休憩行として処理
       if (pendingShift) {
         const hasBreak =
           breakStart && breakEnd && breakStart !== "" && breakEnd !== "";
+        console.log(
+          `[DEBUG] hasBreak=${hasBreak}, breakStart="${breakStart}", breakEnd="${breakEnd}"`
+        );
         if (hasBreak) {
           pendingShift.breaks.push({ start: breakStart, end: breakEnd });
+          console.log(
+            `[DEBUG] Added break to pendingShift: ${breakStart}-${breakEnd}, total breaks: ${pendingShift.breaks.length}`
+          );
         }
         continue;
       }
-      // 保留中のシフトがない場合、従業員名だけの行として処理
+      // 保留中のシフトがない場合、従業員名を取得して処理
+      const employeeName = name && name !== "" ? name : currentName;
+      if (!employeeName) {
+        continue;
+      }
+      // 従業員名だけの行として処理
       formattedData.push({
         name: employeeName,
         date: null,
@@ -771,6 +803,12 @@ function formatWorkingHoursData(csvData) {
         role: role || "",
       });
       currentName = employeeName;
+      continue;
+    }
+
+    // 従業員名を取得（現在の行にない場合は、前回の従業員名を使用）
+    const employeeName = name && name !== "" ? name : currentName;
+    if (!employeeName) {
       continue;
     }
 
@@ -832,6 +870,9 @@ function formatWorkingHoursData(csvData) {
       role: role || "",
       breaks: hasBreak ? [{ start: breakStart, end: breakEnd }] : [],
     };
+    console.log(
+      `[DEBUG] Created new pendingShift: name=${employeeName}, date=${date}, initial breaks=${pendingShift.breaks.length}`
+    );
 
     // 従業員名を更新
     currentName = employeeName;
