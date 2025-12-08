@@ -18,7 +18,9 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
+// CSVファイルをアップロードするため、リクエストボディサイズの制限を増やす（50MB）
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // ExpressのRequest型を拡張してuser情報を追加
 app.use((req, res, next) => {
@@ -508,11 +510,35 @@ function convertToDate(dateString) {
 }
 
 /**
+ * Remove quotes from CSV field value
+ * @param {string} value - CSV field value (may contain quotes)
+ * @returns {string} Value with quotes removed
+ */
+function removeQuotes(value) {
+  if (!value) return value;
+  let trimmed = value.trim();
+  // Remove surrounding quotes if present
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    trimmed = trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+/**
  * Convert month name date string to DATE format
  * @param {string} dateString - Date string in format "October 28 2025"
  * @returns {string} Date string in format "YYYY-MM-DD"
  */
 function convertMonthNameToDate(dateString) {
+  // 空文字列や引用符のみの文字列をチェック
+  const trimmed = dateString.trim();
+  if (!trimmed || trimmed === "" || trimmed === '""' || trimmed === "''") {
+    throw new Error(`Invalid date format: ${dateString}`);
+  }
+
   const monthNames = {
     January: "01",
     February: "02",
@@ -528,7 +554,7 @@ function convertMonthNameToDate(dateString) {
     December: "12",
   };
 
-  const parts = dateString.trim().split(/\s+/);
+  const parts = trimmed.split(/\s+/);
   if (parts.length !== 3) {
     throw new Error(`Invalid date format: ${dateString}`);
   }
@@ -546,7 +572,7 @@ function convertMonthNameToDate(dateString) {
 
 /**
  * Convert 12-hour time format to 24-hour TIME format
- * @param {string} timeString - Time string in format "11:14 AM" or "1:50 PM"
+ * @param {string} timeString - Time string in format "11:14 AM", "1:50 PM", "11:14am", or "1:50pm"
  * @returns {string} Time string in format "HH:MM:SS"
  */
 function convertTo24HourTime(timeString) {
@@ -555,6 +581,7 @@ function convertTo24HourTime(timeString) {
   }
 
   const trimmed = timeString.trim();
+  // \s* でスペースあり/なしに対応、/i フラグで大文字小文字に対応
   const match = trimmed.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
 
   if (!match) {
@@ -596,7 +623,7 @@ function formatWorkingHoursData(csvData) {
   }
 
   // ヘッダー行からカラムインデックスを取得
-  const headerRow = csvData[headerRowIndex].split(",");
+  const headerRow = csvData[headerRowIndex].split(",").map(removeQuotes);
   const nameIndex = headerRow.indexOf("Name");
   const clockInDateIndex = headerRow.indexOf("Clock in date");
   const clockInTimeIndex = headerRow.indexOf("Clock in time");
@@ -608,15 +635,96 @@ function formatWorkingHoursData(csvData) {
 
   // データ行を処理（ヘッダー行の次から）
   let currentName = null;
+  // 複数の休憩行に対応するための一時保存変数
+  let pendingShift = null;
+
+  // 一時保存されたシフト情報からレコードを生成する関数
+  const processPendingShift = () => {
+    if (!pendingShift) return;
+
+    const { name, date, clockInTime, clockOutTime, role, breaks } =
+      pendingShift;
+
+    console.log(
+      `[DEBUG] processPendingShift: name=${name}, date=${date}, breaks.length=${breaks.length}`
+    );
+    if (breaks.length > 0) {
+      console.log(
+        `[DEBUG] Breaks: ${breaks.map((b) => `${b.start}-${b.end}`).join(", ")}`
+      );
+    }
+
+    // 休憩情報を開始時間でソート
+    const sortedBreaks = breaks.sort((a, b) => {
+      const timeA = convertTo24HourTime(a.start);
+      const timeB = convertTo24HourTime(b.start);
+      return timeA.localeCompare(timeB);
+    });
+
+    // 休憩がない場合
+    if (sortedBreaks.length === 0) {
+      formattedData.push({
+        name: name,
+        date: date,
+        start: clockInTime,
+        end: clockOutTime,
+        role: role || "",
+      });
+      return;
+    }
+
+    // 最初の休憩前のレコード
+    formattedData.push({
+      name: name,
+      date: date,
+      start: clockInTime,
+      end: convertTo24HourTime(sortedBreaks[0].start),
+      role: role || "",
+    });
+
+    // 休憩と休憩の間のレコード
+    for (let i = 0; i < sortedBreaks.length - 1; i++) {
+      formattedData.push({
+        name: name,
+        date: date,
+        start: convertTo24HourTime(sortedBreaks[i].end),
+        end: convertTo24HourTime(sortedBreaks[i + 1].start),
+        role: role || "",
+      });
+    }
+
+    // 最後の休憩後のレコード
+    formattedData.push({
+      name: name,
+      date: date,
+      start: convertTo24HourTime(sortedBreaks[sortedBreaks.length - 1].end),
+      end: clockOutTime,
+      role: role || "",
+    });
+
+    console.log(
+      `[DEBUG] processPendingShift generated ${
+        1 + sortedBreaks.length
+      } records (1 before first break + ${
+        sortedBreaks.length - 1
+      } between breaks + 1 after last break)`
+    );
+  };
 
   for (let i = headerRowIndex + 1; i < csvData.length; i++) {
-    const row = csvData[i].split(",");
+    const row = csvData[i].split(",").map(removeQuotes);
 
     // 空行、区切り行、Totals行をスキップ
     const nameValue = row[nameIndex]?.trim() || "";
+    // breakStartまたはbreakEndが存在する場合は、追加の休憩行の可能性があるためスキップしない
+    const breakStart =
+      breakStartIndex !== -1 ? row[breakStartIndex]?.trim() || "" : "";
+    const breakEnd =
+      breakEndIndex !== -1 ? row[breakEndIndex]?.trim() || "" : "";
+    const hasBreakData = breakStart !== "" || breakEnd !== "";
     if (
       row.length === 0 ||
-      row[0].trim() === "" ||
+      (row[0].trim() === "" && !hasBreakData) ||
       row[0].trim() === "-" ||
       row[0].trim().startsWith("Totals") ||
       nameValue.startsWith("Totals")
@@ -626,6 +734,9 @@ function formatWorkingHoursData(csvData) {
 
     // 次のヘッダー行が見つかったら、次の従業員セクションに移る
     if (row[nameIndex] && row[nameIndex].trim() === "Name") {
+      // 保留中のシフトを処理
+      processPendingShift();
+      pendingShift = null;
       currentName = null;
       continue;
     }
@@ -633,6 +744,9 @@ function formatWorkingHoursData(csvData) {
     // 従業員名の行（シフトデータがない場合）
     const name = row[nameIndex]?.trim();
     if (name && name !== "" && !row[clockInDateIndex]?.trim()) {
+      // 保留中のシフトを処理
+      processPendingShift();
+      pendingShift = null;
       // nameだけで他のデータがない行も保存する（date, start, end は NULL）
       const employeeName = name;
       formattedData.push({
@@ -646,29 +760,49 @@ function formatWorkingHoursData(csvData) {
       continue;
     }
 
-    // シフトデータの行
-    const clockInDate = row[clockInDateIndex]?.trim();
-    const clockInTime = row[clockInTimeIndex]?.trim();
-    const clockOutTime = row[clockOutTimeIndex]?.trim();
-    const breakStart = row[breakStartIndex]?.trim();
-    const breakEnd = row[breakEndIndex]?.trim();
-    const role = row[roleIndex]?.trim();
+    // シフトデータの行（引用符は既に除去済み）
+    // breakStartとbreakEndは717行目で既に取得済み
+    const clockInDate = row[clockInDateIndex]?.trim() || "";
+    const clockInTime = row[clockInTimeIndex]?.trim() || "";
+    const clockOutTime = row[clockOutTimeIndex]?.trim() || "";
+    const role = row[roleIndex]?.trim() || "";
 
-    // 必要なデータがない場合の処理
-    if (!clockInDate || !clockInTime || !clockOutTime) {
-      // 従業員名だけの行の可能性がある
-      const employeeName = name && name !== "" ? name : currentName;
-      if (employeeName) {
-        // nameだけで他のデータがない行も保存する（date, start, end は NULL）
-        formattedData.push({
-          name: employeeName,
-          date: null,
-          start: null,
-          end: null,
-          role: role || "",
-        });
-        currentName = employeeName;
+    // clockInDateが空の場合（employeeNameのチェックより前に処理）
+    if (!clockInDate || clockInDate === "") {
+      console.log(
+        `[DEBUG] clockInDate is empty, row ${i}: name="${name}", breakStart="${breakStart}", breakEnd="${breakEnd}", pendingShift=${
+          pendingShift ? "exists" : "null"
+        }`
+      );
+      // 保留中のシフトがある場合、追加の休憩行として処理
+      if (pendingShift) {
+        const hasBreak =
+          breakStart && breakEnd && breakStart !== "" && breakEnd !== "";
+        console.log(
+          `[DEBUG] hasBreak=${hasBreak}, breakStart="${breakStart}", breakEnd="${breakEnd}"`
+        );
+        if (hasBreak) {
+          pendingShift.breaks.push({ start: breakStart, end: breakEnd });
+          console.log(
+            `[DEBUG] Added break to pendingShift: ${breakStart}-${breakEnd}, total breaks: ${pendingShift.breaks.length}`
+          );
+        }
+        continue;
       }
+      // 保留中のシフトがない場合、従業員名を取得して処理
+      const employeeName = name && name !== "" ? name : currentName;
+      if (!employeeName) {
+        continue;
+      }
+      // 従業員名だけの行として処理
+      formattedData.push({
+        name: employeeName,
+        date: null,
+        start: null,
+        end: null,
+        role: role || "",
+      });
+      currentName = employeeName;
       continue;
     }
 
@@ -681,38 +815,71 @@ function formatWorkingHoursData(csvData) {
     // 日付を変換
     const date = convertMonthNameToDate(clockInDate);
 
-    // Break情報がある場合
-    if (breakStart && breakEnd && breakStart !== "" && breakEnd !== "") {
-      // 2つのレコードに分割
+    // clockInTimeとclockOutTimeの両方が空の場合
+    if (
+      (!clockInTime || clockInTime === "") &&
+      (!clockOutTime || clockOutTime === "")
+    ) {
+      // 保留中のシフトを処理
+      processPendingShift();
+      pendingShift = null;
       formattedData.push({
         name: employeeName,
         date: date,
-        start: convertTo24HourTime(clockInTime),
-        end: convertTo24HourTime(breakStart),
+        start: null,
+        end: null,
         role: role || "",
       });
-
-      formattedData.push({
-        name: employeeName,
-        date: date,
-        start: convertTo24HourTime(breakEnd),
-        end: convertTo24HourTime(clockOutTime),
-        role: role || "",
-      });
-    } else {
-      // Break情報がない場合、1つのレコードのまま
-      formattedData.push({
-        name: employeeName,
-        date: date,
-        start: convertTo24HourTime(clockInTime),
-        end: convertTo24HourTime(clockOutTime),
-        role: role || "",
-      });
+      currentName = employeeName;
+      continue;
     }
+
+    // clockInTimeまたはclockOutTimeのいずれかが空の場合の処理
+    const hasClockInTime = clockInTime && clockInTime !== "";
+    const hasClockOutTime = clockOutTime && clockOutTime !== "";
+
+    if (!hasClockInTime || !hasClockOutTime) {
+      // 保留中のシフトを処理
+      processPendingShift();
+      pendingShift = null;
+      // 時間が不完全な場合でも、dateは保存する
+      formattedData.push({
+        name: employeeName,
+        date: date,
+        start: hasClockInTime ? convertTo24HourTime(clockInTime) : null,
+        end: hasClockOutTime ? convertTo24HourTime(clockOutTime) : null,
+        role: role || "",
+      });
+      currentName = employeeName;
+      continue;
+    }
+
+    // 全ての時間データが揃っている場合（完全な行）
+    // 保留中のシフトを処理
+    processPendingShift();
+    pendingShift = null;
+
+    // 新しい完全な行を一時保存
+    const hasBreak =
+      breakStart && breakEnd && breakStart !== "" && breakEnd !== "";
+    pendingShift = {
+      name: employeeName,
+      date: date,
+      clockInTime: convertTo24HourTime(clockInTime),
+      clockOutTime: convertTo24HourTime(clockOutTime),
+      role: role || "",
+      breaks: hasBreak ? [{ start: breakStart, end: breakEnd }] : [],
+    };
+    console.log(
+      `[DEBUG] Created new pendingShift: name=${employeeName}, date=${date}, initial breaks=${pendingShift.breaks.length}`
+    );
 
     // 従業員名を更新
     currentName = employeeName;
   }
+
+  // ループ終了後、保留中のシフトを処理
+  processPendingShift();
 
   // 全レコード生成後、一括してis_complete_on_importを判定
   for (let i = 0; i < formattedData.length; i++) {
@@ -806,12 +973,16 @@ function formatToastTipData(csvData) {
   }
 
   // ヘッダー行からカラムインデックスを取得
-  const headerRow = csvData[headerRowIndex].split(",");
+  const headerRow = csvData[headerRowIndex].split(",").map(removeQuotes);
   const openedIndex = headerRow.findIndex(
     (col) => col.toLowerCase().trim() === "opened"
   );
   const tipIndex = headerRow.findIndex(
     (col) => col.toLowerCase().trim() === "tip"
+  );
+  // Gratuity列はオプショナル（Toast形式のCSVにのみ存在する可能性がある）
+  const gratuityIndex = headerRow.findIndex(
+    (col) => col.toLowerCase().trim() === "gratuity"
   );
 
   if (openedIndex === -1 || tipIndex === -1) {
@@ -820,37 +991,68 @@ function formatToastTipData(csvData) {
 
   // データ行を処理
   for (let i = headerRowIndex + 1; i < csvData.length; i++) {
-    const row = csvData[i].split(",");
+    const row = csvData[i].split(",").map(removeQuotes);
 
     // 空行をスキップ
     if (row.length === 0 || row[0].trim() === "") {
       continue;
     }
 
-    const openedValue = row[openedIndex]?.trim();
-    const tipValue = row[tipIndex]?.trim();
+    const openedValue = row[openedIndex]?.trim() || "";
+    const tipValue = row[tipIndex]?.trim() || "";
 
-    if (!openedValue || !tipValue) {
+    // openedValueは必須、tipValueは"0"や"0.00"も有効な値として扱う
+    if (!openedValue || tipValue === "") {
       continue;
     }
 
-    // "10/19/25 16:21" 形式を分割
+    // "10/19/25 16:21" または "10/28/25 11:31 AM" 形式を分割
     const openedParts = openedValue.split(/\s+/);
     if (openedParts.length < 2) {
       continue;
     }
 
     const orderDateStr = openedParts[0]; // "10/19/25"
-    const paymentTimeStr = openedParts[1]; // "16:21"
+    let paymentTimeStr = openedParts[1]; // "16:21" または "11:31"
+    const period = openedParts[2]?.toUpperCase(); // "AM" または "PM" (存在する場合)
 
-    // 日付と時刻を変換
+    // AM/PMが含まれている場合は、24時間形式に変換
+    let paymentTime = null;
+    if (period && (period === "AM" || period === "PM")) {
+      // 12時間形式を24時間形式に変換
+      const timeMatch = paymentTimeStr.match(/(\d{1,2}):(\d{2})/);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1], 10);
+        const minutes = timeMatch[2];
+
+        if (period === "PM" && hours !== 12) {
+          hours += 12;
+        } else if (period === "AM" && hours === 12) {
+          hours = 0;
+        }
+
+        paymentTime = `${hours.toString().padStart(2, "0")}:${minutes}:00`;
+      }
+    } else {
+      // AM/PMがない場合は、そのまま変換（既存の動作）
+      paymentTime = convertTimeToTime(paymentTimeStr);
+    }
+
+    // 日付を変換
     const orderDate = convertTipDateToDate(orderDateStr);
-    const paymentTime = convertTimeToTime(paymentTimeStr);
+
+    // TipとGratuityを数値に変換して加算
+    // Gratuity列が存在しない場合は0として扱う
+    const tipNumeric = parseFloat(tipValue) || 0;
+    const gratuityValue =
+      gratuityIndex !== -1 ? row[gratuityIndex]?.trim() || "0" : "0";
+    const gratuityNumeric = parseFloat(gratuityValue) || 0;
+    const totalTips = tipNumeric + gratuityNumeric;
 
     formattedData.push({
       order_date: orderDate,
       payment_time: paymentTime,
-      tips: tipValue,
+      tips: totalTips.toString(),
     });
   }
 
@@ -879,7 +1081,7 @@ function formatCloverTipData(csvData) {
   }
 
   // ヘッダー行からカラムインデックスを取得
-  const headerRow = csvData[headerRowIndex].split(",");
+  const headerRow = csvData[headerRowIndex].split(",").map(removeQuotes);
   const orderDateIndex = headerRow.findIndex(
     (col) => col.toLowerCase().trim() === "order date"
   );
@@ -909,15 +1111,15 @@ function formatCloverTipData(csvData) {
 
   // データ行を処理
   for (let i = headerRowIndex + 1; i < csvData.length; i++) {
-    const row = csvData[i].split(",");
+    const row = csvData[i].split(",").map(removeQuotes);
 
     // 空行をスキップ
     if (row.length === 0 || row[0].trim() === "") {
       continue;
     }
 
-    const orderDateValue = row[orderDateIndex]?.trim();
-    const tipValue = row[tipIndex]?.trim();
+    const orderDateValue = row[orderDateIndex]?.trim() || "";
+    const tipValue = row[tipIndex]?.trim() || "";
 
     if (!orderDateValue || !tipValue) {
       continue;
@@ -1382,8 +1584,256 @@ app.get("/api/tips/calculation-results", authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/tips/records
+app.get("/api/tips/records", authMiddleware, async (req, res) => {
+  try {
+    // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      throw new Error(
+        `Failed to fetch user stores: ${storeUsersError.message}`
+      );
+    }
+
+    if (!storeUsers || storeUsers.length === 0) {
+      return res.status(403).json({
+        error: "You do not have permission to access any stores",
+      });
+    }
+
+    const storeIds = storeUsers.map((su) => su.store_id);
+
+    // 2. tip_calculationsからstatus: 'saved'のレコードを取得（ユーザーがアクセス権を持つ店舗のみ）
+    const { data: calculations, error: calcError } = await supabase
+      .from("tip_calculations")
+      .select("id, stores_id, period_start, period_end")
+      .eq("status", "saved")
+      .in("stores_id", storeIds);
+
+    if (calcError) {
+      console.error("Supabase select tip_calculations error:", calcError);
+      throw new Error(`Failed to fetch calculations: ${calcError.message}`);
+    }
+
+    if (!calculations || calculations.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+      });
+    }
+
+    const calculationIds = calculations.map((calc) => calc.id);
+
+    // 3. tip_calculation_resultsを取得
+    const { data: results, error: resultsError } = await supabase
+      .from("tip_calculation_results")
+      .select("id, calculation_id, name, date, tips, cash_tips")
+      .in("calculation_id", calculationIds);
+
+    if (resultsError) {
+      console.error(
+        "Supabase select tip_calculation_results error:",
+        resultsError
+      );
+      throw new Error(`Failed to fetch records: ${resultsError.message}`);
+    }
+
+    // 4. stores情報を取得
+    const uniqueStoreIds = [
+      ...new Set(calculations.map((calc) => calc.stores_id)),
+    ];
+    const { data: stores, error: storesError } = await supabase
+      .from("stores")
+      .select("id, name, abbreviation")
+      .in("id", uniqueStoreIds);
+
+    if (storesError) {
+      console.error("Supabase select stores error:", storesError);
+      throw new Error(`Failed to fetch stores: ${storesError.message}`);
+    }
+
+    // 5. データを整形（calculation_idでマッピング）
+    const calculationMap = new Map();
+    calculations.forEach((calc) => {
+      calculationMap.set(calc.id, calc);
+    });
+
+    const storeMap = new Map();
+    (stores || []).forEach((store) => {
+      storeMap.set(store.id, store);
+    });
+
+    const formattedResults = (results || [])
+      .map((result) => {
+        const calculation = calculationMap.get(result.calculation_id);
+        const store = calculation ? storeMap.get(calculation.stores_id) : null;
+        return {
+          id: result.id,
+          periodStart: calculation?.period_start || null,
+          store: store?.abbreviation || store?.name || "Unknown",
+          name: result.name || "",
+          tips: result.tips || 0,
+          cashTips: result.cash_tips || 0,
+        };
+      })
+      .sort((a, b) => {
+        // ソート: 日付降順 → 店舗名 → 従業員名
+        // 日付の比較（YYYY-MM-DD形式なので文字列比較で正しくソートされる）
+        if (a.periodStart !== b.periodStart) {
+          const dateA = a.periodStart || "";
+          const dateB = b.periodStart || "";
+          if (dateA < dateB) return 1;
+          if (dateA > dateB) return -1;
+          return 0;
+        }
+        // 店舗名の比較
+        if (a.store !== b.store) {
+          return a.store.localeCompare(b.store);
+        }
+        // 従業員名の比較
+        return a.name.localeCompare(b.name);
+      });
+
+    // 6. レスポンスを返す
+    res.status(200).json({
+      success: true,
+      data: formattedResults,
+    });
+  } catch (error) {
+    console.error("Error fetching records:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // DELETE /api/tips/formatted-data
 app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
+  try {
+    const { calculationId } = req.query;
+
+    if (!calculationId) {
+      return res.status(400).json({ error: "calculationId is required" });
+    }
+
+    // 1. tip_calculationsレコードを取得
+    const { data: calculation, error: calcError } = await supabase
+      .from("tip_calculations")
+      .select("*")
+      .eq("id", calculationId)
+      .single();
+
+    if (calcError || !calculation) {
+      console.error("Supabase select tip_calculations error:", calcError);
+      return res.status(404).json({
+        error: "Calculation not found",
+      });
+    }
+
+    // 2. ユーザーが権限を持つ店を取得（store_usersテーブルから）
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      throw new Error(
+        `Failed to fetch user stores: ${storeUsersError.message}`
+      );
+    }
+
+    if (!storeUsers || storeUsers.length === 0) {
+      return res.status(403).json({
+        error: "You do not have permission to access any stores",
+      });
+    }
+
+    // 3. 権限チェック
+    const storeIds = storeUsers.map((su) => su.store_id);
+    if (!storeIds.includes(calculation.stores_id)) {
+      return res.status(403).json({
+        error: "You do not have permission to access this calculation",
+      });
+    }
+
+    // 4. status: 'completed'か確認して、'saved'に更新
+    if (calculation.status === "completed") {
+      const { error: updateError } = await supabase
+        .from("tip_calculations")
+        .update({ status: "saved" })
+        .eq("id", calculationId);
+
+      if (updateError) {
+        console.error("Supabase update tip_calculations error:", updateError);
+        throw new Error(
+          `Failed to update calculation status: ${updateError.message}`
+        );
+      }
+    }
+
+    // 5. formatted_working_hoursから削除
+    const { error: deleteWorkingHoursError } = await supabase
+      .from("formatted_working_hours")
+      .delete()
+      .eq("stores_id", calculation.stores_id);
+
+    if (deleteWorkingHoursError) {
+      console.error(
+        "Supabase delete formatted_working_hours error:",
+        deleteWorkingHoursError
+      );
+      throw new Error(
+        `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`
+      );
+    }
+
+    // 6. formatted_tip_dataから削除
+    const { error: deleteTipDataError } = await supabase
+      .from("formatted_tip_data")
+      .delete()
+      .eq("stores_id", calculation.stores_id);
+
+    if (deleteTipDataError) {
+      console.error(
+        "Supabase delete formatted_tip_data error:",
+        deleteTipDataError
+      );
+      throw new Error(
+        `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`
+      );
+    }
+
+    // 7. formatted_cash_tipから削除
+    const { error: deleteCashTipError } = await supabase
+      .from("formatted_cash_tip")
+      .delete()
+      .eq("stores_id", calculation.stores_id);
+
+    if (deleteCashTipError) {
+      console.error(
+        "Supabase delete formatted_cash_tip error:",
+        deleteCashTipError
+      );
+      throw new Error(
+        `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error deleting formatted data:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/tips/calculation-status
+app.get("/api/tips/calculation-status", authMiddleware, async (req, res) => {
   try {
     const { storeId } = req.query;
 
@@ -1418,59 +1868,62 @@ app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
       });
     }
 
-    // 3. formatted_working_hoursから削除
-    const { error: deleteWorkingHoursError } = await supabase
-      .from("formatted_working_hours")
-      .delete()
-      .eq("stores_id", storeId);
+    // 3. tip_calculationsからstatus: 'completed'を優先してチェック
+    // completedを優先（tip_calculation_resultsにレコードがあるため）
+    const { data: completedCalculation, error: completedError } = await supabase
+      .from("tip_calculations")
+      .select("id")
+      .eq("stores_id", storeId)
+      .eq("status", "completed")
+      .maybeSingle();
 
-    if (deleteWorkingHoursError) {
-      console.error(
-        "Supabase delete formatted_working_hours error:",
-        deleteWorkingHoursError
-      );
+    if (completedError && completedError.code !== "PGRST116") {
+      console.error("Supabase select tip_calculations error:", completedError);
       throw new Error(
-        `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`
+        `Failed to fetch calculation status: ${completedError.message}`
       );
     }
 
-    // 4. formatted_tip_dataから削除
-    const { error: deleteTipDataError } = await supabase
-      .from("formatted_tip_data")
-      .delete()
-      .eq("stores_id", storeId);
+    if (completedCalculation) {
+      return res.status(200).json({
+        success: true,
+        status: "completed",
+        calculationId: completedCalculation.id,
+      });
+    }
 
-    if (deleteTipDataError) {
-      console.error(
-        "Supabase delete formatted_tip_data error:",
-        deleteTipDataError
-      );
+    // 4. status: 'processing'をチェック
+    const { data: processingCalculation, error: processingError } =
+      await supabase
+        .from("tip_calculations")
+        .select("id")
+        .eq("stores_id", storeId)
+        .eq("status", "processing")
+        .maybeSingle();
+
+    if (processingError && processingError.code !== "PGRST116") {
+      console.error("Supabase select tip_calculations error:", processingError);
       throw new Error(
-        `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`
+        `Failed to fetch calculation status: ${processingError.message}`
       );
     }
 
-    // 5. formatted_cash_tipから削除
-    const { error: deleteCashTipError } = await supabase
-      .from("formatted_cash_tip")
-      .delete()
-      .eq("stores_id", storeId);
-
-    if (deleteCashTipError) {
-      console.error(
-        "Supabase delete formatted_cash_tip error:",
-        deleteCashTipError
-      );
-      throw new Error(
-        `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`
-      );
+    if (processingCalculation) {
+      return res.status(200).json({
+        success: true,
+        status: "processing",
+        calculationId: processingCalculation.id,
+      });
     }
 
-    res.status(200).json({
+    // 5. どちらもない場合
+    return res.status(200).json({
       success: true,
+      status: null,
+      calculationId: null,
     });
   } catch (error) {
-    console.error("Error deleting formatted data:", error);
+    console.error("Error fetching calculation status:", error);
     res.status(500).json({ error: error.message });
   }
 });

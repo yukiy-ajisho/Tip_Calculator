@@ -82,15 +82,15 @@ export default function CalculatePage() {
   };
 
   const handleSave = async () => {
-    if (!calculation || !calculation.stores_id) {
-      alert("Calculation data is missing. Please refresh the page.");
+    if (!calculationId) {
+      alert("Calculation ID is missing. Please refresh the page.");
       return;
     }
 
     try {
       setIsSaving(true);
 
-      await api.tips.deleteFormattedData(calculation.stores_id);
+      await api.tips.deleteFormattedData(calculationId);
 
       setIsSuccessModalOpen(true);
     } catch (error) {

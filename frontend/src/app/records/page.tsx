@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { api } from "@/lib/api";
+import { RecordItem } from "@/types";
 
 export default function RecordsPage() {
   // タブ切り替えの状態
@@ -8,99 +10,54 @@ export default function RecordsPage() {
     "tipResultCombine" | "storeBreakdown"
   >("tipResultCombine");
 
-  // モックデータ（将来的にSupabaseから取得）
+  // データ取得の状態
+  const [records, setRecords] = useState<RecordItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // 日付をフォーマット（YYYY-MM-DD → MM/DD/YYYY）
+  const formatDate = (dateString: string | null): string => {
+    if (!dateString) return "";
+    const parts = dateString.split("-");
+    if (parts.length !== 3) return dateString;
+    const [year, month, day] = parts;
+    return `${month}/${day}/${year}`;
+  };
+
+  // APIからデータを取得
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const response = await api.tips.getRecords();
+        if (response.success) {
+          setRecords(response.data);
+        } else {
+          setError("Failed to load records");
+        }
+      } catch (err) {
+        console.error("Error fetching records:", err);
+        setError(err instanceof Error ? err.message : "Failed to load records");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // データをRecordsの形式に変換（日付フォーマットを変換）
   const Records = useMemo(
-    () => [
-      // 11/11/2024, Store: SF
-      {
-        periodStart: "11/11/2024",
-        store: "SF",
-        name: "Sandra Pixtun",
-        tips: 100.5,
-        cashTips: 0,
-      },
-      {
-        periodStart: "11/11/2024",
-        store: "SF",
-        name: "Suguru Ishikawa",
-        tips: 0,
-        cashTips: 0,
-      },
-      {
-        periodStart: "11/11/2024",
-        store: "SF",
-        name: "Yuki Tadokoro",
-        tips: 250.75,
-        cashTips: 0,
-      },
-      // 11/11/2024, Store: BG
-      {
-        periodStart: "11/11/2024",
-        store: "BG",
-        name: "Adelina Perez",
-        tips: 0,
-        cashTips: 50.0,
-      },
-      {
-        periodStart: "11/11/2024",
-        store: "BG",
-        name: "Alan Martinez",
-        tips: 150.25,
-        cashTips: 0,
-      },
-      {
-        periodStart: "11/11/2024",
-        store: "BG",
-        name: "Alexis Bartolon",
-        tips: 200.0,
-        cashTips: 0,
-      },
-      // 11/25/2024, Store: BG
-      {
-        periodStart: "11/25/2024",
-        store: "BG",
-        name: "Adelina Perez",
-        tips: 0,
-        cashTips: 50.0,
-      },
-      {
-        periodStart: "11/25/2024",
-        store: "BG",
-        name: "Alan Martinez",
-        tips: 150.25,
-        cashTips: 0,
-      },
-      {
-        periodStart: "11/25/2024",
-        store: "BG",
-        name: "Alexis Bartolon",
-        tips: 200.0,
-        cashTips: 0,
-      },
-      // 11/25/2024, Store: SF
-      {
-        periodStart: "11/25/2024",
-        store: "SF",
-        name: "Sandra Pixtun",
-        tips: 100.5,
-        cashTips: 0,
-      },
-      {
-        periodStart: "11/25/2024",
-        store: "SF",
-        name: "Suguru Ishikawa",
-        tips: 0,
-        cashTips: 0,
-      },
-      {
-        periodStart: "11/25/2024",
-        store: "SF",
-        name: "Yuki Tadokoro",
-        tips: 250.75,
-        cashTips: 0,
-      },
-    ],
-    []
+    () =>
+      records.map((record) => ({
+        periodStart: formatDate(record.periodStart),
+        store: record.store,
+        name: record.name,
+        tips: record.tips,
+        cashTips: record.cashTips,
+      })),
+    [records]
   );
 
   // 日付ごとにグループ化（Storeは無視）
@@ -150,12 +107,35 @@ export default function RecordsPage() {
   }, [Records]);
 
   // 初期選択: 最初の日付を選択
+  // 日付をソート（MM/DD/YYYY形式なので、一度YYYY-MM-DDに変換してからソート）
   const availableDates = useMemo(() => {
-    return Object.keys(storeBreakdownByDate).sort();
+    const dates = Object.keys(storeBreakdownByDate);
+    return dates.sort((a, b) => {
+      // MM/DD/YYYY → YYYY-MM-DDに変換して比較
+      const convertToSortable = (dateStr: string) => {
+        const parts = dateStr.split("/");
+        if (parts.length !== 3) return dateStr;
+        return `${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(
+          2,
+          "0"
+        )}`;
+      };
+      const dateA = convertToSortable(a);
+      const dateB = convertToSortable(b);
+      return dateB.localeCompare(dateA); // 降順（新しい日付が先）
+    });
   }, [storeBreakdownByDate]);
 
   // Store Breakdown用: 選択された日付の状態（null = "All"を選択）
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  // Store Breakdown用: ソート状態
+  const [nameSortOrder, setNameSortOrder] = useState<"asc" | "desc" | null>(
+    null
+  );
+  const [storeSortOrder, setStoreSortOrder] = useState<"asc" | "desc" | null>(
+    null
+  );
 
   // Store Breakdown用: 各日付の合計を計算（Storeを考慮）
   const getStoreBreakdownDateTotal = (date: string) => {
@@ -164,6 +144,18 @@ export default function RecordsPage() {
       (sum, record) => sum + record.tips + record.cashTips,
       0
     );
+  };
+
+  // Store Breakdown用: 各日付のtip合計を計算
+  const getStoreBreakdownTipTotal = (date: string) => {
+    const records = storeBreakdownByDate[date] || [];
+    return records.reduce((sum, record) => sum + record.tips, 0);
+  };
+
+  // Store Breakdown用: 各日付のcash tip合計を計算
+  const getStoreBreakdownCashTipTotal = (date: string) => {
+    const records = storeBreakdownByDate[date] || [];
+    return records.reduce((sum, record) => sum + record.cashTips, 0);
   };
 
   // Store Breakdown用: 選択された日付のデータを取得し、名前でグループ化
@@ -178,34 +170,100 @@ export default function RecordsPage() {
       records = storeBreakdownByDate[selectedDate] || [];
     }
 
-    // 名前でソート（同じ名前の人は近くに配置）
+    // ソート: 最後にクリックした列を優先
     const sorted = [...records].sort((a, b) => {
-      if (a.name !== b.name) {
-        return a.name.localeCompare(b.name);
+      // Storeソートが有効な場合（最後にクリックされた列）
+      if (storeSortOrder !== null) {
+        if (storeSortOrder === "asc") {
+          return a.store.localeCompare(b.store);
+        } else {
+          return b.store.localeCompare(a.store);
+        }
       }
-      // 同じ名前の場合は日付でソート
-      if (a.periodStart !== b.periodStart) {
-        return a.periodStart.localeCompare(b.periodStart);
+
+      // Nameソートが有効な場合（最後にクリックされた列）
+      if (nameSortOrder !== null) {
+        if (nameSortOrder === "asc") {
+          return a.name.localeCompare(b.name);
+        } else {
+          return b.name.localeCompare(a.name);
+        }
       }
-      return a.store.localeCompare(b.store);
+
+      // デフォルトソート: 日付降順 → 店舗名 → 従業員名（バックエンドと同じ順序を維持）
+      const convertToSortable = (dateStr: string) => {
+        const parts = dateStr.split("/");
+        if (parts.length !== 3) return dateStr;
+        return `${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(
+          2,
+          "0"
+        )}`;
+      };
+      const dateA = convertToSortable(a.periodStart);
+      const dateB = convertToSortable(b.periodStart);
+      if (dateA !== dateB) {
+        if (dateA < dateB) return 1;
+        if (dateA > dateB) return -1;
+        return 0;
+      }
+      // 店舗名の比較
+      if (a.store !== b.store) {
+        return a.store.localeCompare(b.store);
+      }
+      // 従業員名の比較
+      return a.name.localeCompare(b.name);
     });
 
     return sorted;
-  }, [selectedDate, storeBreakdownByDate]);
+  }, [selectedDate, storeBreakdownByDate, nameSortOrder, storeSortOrder]);
 
-  // 将来的にSupabaseからデータ取得
-  // useEffect(() => {
-  //   const fetchData = async () => {
-  //     const data = await fetchFromSupabase();
-  //     setTipResultCombineData(data.tipResultCombine);
-  //     setStoreBreakdownData(data.storeBreakdown);
-  //   };
-  //   fetchData();
-  // }, []);
+  // Name列のソートを切り替える（Storeのソートを無効化）
+  const handleNameSort = () => {
+    if (nameSortOrder === null) {
+      setNameSortOrder("asc");
+      setStoreSortOrder(null); // Storeのソートを無効化
+    } else if (nameSortOrder === "asc") {
+      setNameSortOrder("desc");
+    } else {
+      setNameSortOrder(null);
+    }
+  };
+
+  // Store列のソートを切り替える（Nameのソートを無効化）
+  const handleStoreSort = () => {
+    if (storeSortOrder === null) {
+      setStoreSortOrder("asc");
+      setNameSortOrder(null); // Nameのソートを無効化
+    } else if (storeSortOrder === "asc") {
+      setStoreSortOrder("desc");
+    } else {
+      setStoreSortOrder(null);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="p-8">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-sm text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-8">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-sm text-red-600">Error: {error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         {/* タブボタン */}
         <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6 w-fit">
           <button
@@ -379,7 +437,8 @@ export default function RecordsPage() {
                   </button>
 
                   {availableDates.map((date) => {
-                    const total = getStoreBreakdownDateTotal(date);
+                    const tipTotal = getStoreBreakdownTipTotal(date);
+                    const cashTipTotal = getStoreBreakdownCashTipTotal(date);
                     const isSelected = selectedDate === date;
                     return (
                       <button
@@ -395,7 +454,10 @@ export default function RecordsPage() {
                           {date}
                         </div>
                         <div className="text-sm text-gray-600">
-                          ${total.toFixed(2)}
+                          Tip: ${tipTotal.toFixed(2)}
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          Cash: ${cashTipTotal.toFixed(2)}
                         </div>
                       </button>
                     );
@@ -410,13 +472,37 @@ export default function RecordsPage() {
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Name
+                          <button
+                            onClick={handleNameSort}
+                            className="flex items-center gap-1 hover:text-gray-700 transition-colors"
+                          >
+                            Name
+                            <span className="text-gray-400">
+                              {nameSortOrder === "asc"
+                                ? "↑"
+                                : nameSortOrder === "desc"
+                                ? "↓"
+                                : "↓"}
+                            </span>
+                          </button>
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Period Start
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Store
+                          <button
+                            onClick={handleStoreSort}
+                            className="flex items-center gap-1 hover:text-gray-700 transition-colors"
+                          >
+                            Store
+                            <span className="text-gray-400">
+                              {storeSortOrder === "asc"
+                                ? "↑"
+                                : storeSortOrder === "desc"
+                                ? "↓"
+                                : "↓"}
+                            </span>
+                          </button>
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Tips

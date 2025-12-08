@@ -132,3 +132,23 @@ export interface GetCalculationResultsResponse {
     results: TipCalculationResult[];
   };
 }
+
+export interface RecordItem {
+  id: string;
+  periodStart: string | null; // YYYY-MM-DD形式
+  store: string;
+  name: string;
+  tips: number;
+  cashTips: number;
+}
+
+export interface GetRecordsResponse {
+  success: boolean;
+  data: RecordItem[];
+}
+
+export interface GetCalculationStatusResponse {
+  success: boolean;
+  status: "processing" | "completed" | null;
+  calculationId: string | null;
+}
