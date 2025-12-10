@@ -5,6 +5,7 @@ export interface Store {
   role?: "owner" | "manager"; // ユーザーがそのストアに対して持つ権限
   off_hours_adjustment_before_hours?: number | null;
   off_hours_adjustment_after_hours?: number | null;
+  start_time_adjustment_minutes?: number | null;
 }
 
 export interface StoreInvitation {
@@ -151,4 +152,22 @@ export interface GetCalculationStatusResponse {
   success: boolean;
   status: "processing" | "completed" | null;
   calculationId: string | null;
+}
+
+export interface UserSettings {
+  id: string;
+  user_id: string;
+  time_format: "24h" | "12h";
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface GetUserSettingsResponse {
+  success: boolean;
+  data: UserSettings;
+}
+
+export interface UpdateUserSettingsResponse {
+  success: boolean;
+  data: UserSettings;
 }

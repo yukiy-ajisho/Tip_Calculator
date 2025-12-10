@@ -15,6 +15,9 @@ import {
   GetCalculationResultsResponse,
   GetRecordsResponse,
   GetCalculationStatusResponse,
+  UserSettings,
+  GetUserSettingsResponse,
+  UpdateUserSettingsResponse,
 } from "@/types";
 import { getErrorMessage } from "@/lib/is-api-error";
 
@@ -105,6 +108,7 @@ export const api = {
       settings: {
         off_hours_adjustment_before_hours?: number | null;
         off_hours_adjustment_after_hours?: number | null;
+        start_time_adjustment_minutes?: number | null;
       }
     ): Promise<{ success: boolean }> => {
       return apiRequest<{ success: boolean }>(
@@ -323,6 +327,17 @@ export const api = {
     },
     getRecords: (): Promise<GetRecordsResponse> => {
       return apiRequest<GetRecordsResponse>("/api/tips/records");
+    },
+  },
+  userSettings: {
+    getUserSettings: (): Promise<UserSettings> => {
+      return apiRequest<UserSettings>("/api/user-settings");
+    },
+    updateUserSettings: (timeFormat: "24h" | "12h"): Promise<UserSettings> => {
+      return apiRequest<UserSettings>("/api/user-settings", {
+        method: "PUT",
+        body: JSON.stringify({ time_format: timeFormat }),
+      });
     },
   },
 };

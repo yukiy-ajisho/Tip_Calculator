@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
+const Papa = require("papaparse");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -32,6 +33,12 @@ app.use((req, res, next) => {
 // Authorizationヘッダーからトークンを取得し、Supabaseで検証
 async function authMiddleware(req, res, next) {
   try {
+    // テスト用: 外部E2Eテストでは認証をスキップできるようにする
+    if (process.env.TEST_BYPASS_AUTH === "true") {
+      req.user = { id: process.env.TEST_USER_ID || "test-user" };
+      return next();
+    }
+
     // Authorizationヘッダーからトークンを取得
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -169,6 +176,7 @@ app.put("/api/stores/:storeId/settings", authMiddleware, async (req, res) => {
   const {
     off_hours_adjustment_before_hours,
     off_hours_adjustment_after_hours,
+    start_time_adjustment_minutes,
   } = req.body;
 
   try {
@@ -217,6 +225,19 @@ app.put("/api/stores/:storeId/settings", authMiddleware, async (req, res) => {
       }
     }
 
+    if (
+      start_time_adjustment_minutes !== null &&
+      start_time_adjustment_minutes !== undefined
+    ) {
+      const adjustmentMinutes = parseInt(start_time_adjustment_minutes, 10);
+      if (isNaN(adjustmentMinutes) || adjustmentMinutes < 0) {
+        return res.status(400).json({
+          error:
+            "start_time_adjustment_minutes must be a non-negative integer (minutes)",
+        });
+      }
+    }
+
     // 3. Prepare update data (store as minutes)
     const updateData = {};
     if (off_hours_adjustment_before_hours !== undefined) {
@@ -232,6 +253,13 @@ app.put("/api/stores/:storeId/settings", authMiddleware, async (req, res) => {
         off_hours_adjustment_after_hours === ""
           ? null
           : parseInt(off_hours_adjustment_after_hours, 10);
+    }
+    if (start_time_adjustment_minutes !== undefined) {
+      updateData.start_time_adjustment_minutes =
+        start_time_adjustment_minutes === null ||
+        start_time_adjustment_minutes === ""
+          ? null
+          : parseInt(start_time_adjustment_minutes, 10);
     }
 
     // 4. Update store settings
@@ -959,10 +987,27 @@ function convertTimeToTime(timeString) {
 function formatToastTipData(csvData) {
   const formattedData = [];
 
+  // CSVデータ全体を結合してPapaParseでパース
+  const csvString = csvData.join("\n");
+  const parseResult = Papa.parse(csvString, {
+    header: false,
+    skipEmptyLines: true,
+  });
+
+  if (parseResult.errors.length > 0) {
+    console.warn("CSV parse warnings:", parseResult.errors);
+  }
+
+  const rows = parseResult.data;
+
   // ヘッダー行を特定
   let headerRowIndex = -1;
-  for (let i = 0; i < csvData.length; i++) {
-    if (csvData[i].toLowerCase().includes("opened")) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (
+      Array.isArray(row) &&
+      row.some((col) => col.toLowerCase().trim() === "opened")
+    ) {
       headerRowIndex = i;
       break;
     }
@@ -973,7 +1018,7 @@ function formatToastTipData(csvData) {
   }
 
   // ヘッダー行からカラムインデックスを取得
-  const headerRow = csvData[headerRowIndex].split(",").map(removeQuotes);
+  const headerRow = rows[headerRowIndex];
   const openedIndex = headerRow.findIndex(
     (col) => col.toLowerCase().trim() === "opened"
   );
@@ -990,11 +1035,11 @@ function formatToastTipData(csvData) {
   }
 
   // データ行を処理
-  for (let i = headerRowIndex + 1; i < csvData.length; i++) {
-    const row = csvData[i].split(",").map(removeQuotes);
+  for (let i = headerRowIndex + 1; i < rows.length; i++) {
+    const row = rows[i];
 
     // 空行をスキップ
-    if (row.length === 0 || row[0].trim() === "") {
+    if (row.length === 0 || !row[0] || row[0].trim() === "") {
       continue;
     }
 
@@ -1067,10 +1112,27 @@ function formatToastTipData(csvData) {
 function formatCloverTipData(csvData) {
   const formattedData = [];
 
+  // CSVデータ全体を結合してPapaParseでパース
+  const csvString = csvData.join("\n");
+  const parseResult = Papa.parse(csvString, {
+    header: false,
+    skipEmptyLines: true,
+  });
+
+  if (parseResult.errors.length > 0) {
+    console.warn("CSV parse warnings:", parseResult.errors);
+  }
+
+  const rows = parseResult.data;
+
   // ヘッダー行を特定
   let headerRowIndex = -1;
-  for (let i = 0; i < csvData.length; i++) {
-    if (csvData[i].toLowerCase().includes("order date")) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (
+      Array.isArray(row) &&
+      row.some((col) => col.toLowerCase().trim() === "order date")
+    ) {
       headerRowIndex = i;
       break;
     }
@@ -1081,7 +1143,7 @@ function formatCloverTipData(csvData) {
   }
 
   // ヘッダー行からカラムインデックスを取得
-  const headerRow = csvData[headerRowIndex].split(",").map(removeQuotes);
+  const headerRow = rows[headerRowIndex];
   const orderDateIndex = headerRow.findIndex(
     (col) => col.toLowerCase().trim() === "order date"
   );
@@ -1110,18 +1172,19 @@ function formatCloverTipData(csvData) {
   };
 
   // データ行を処理
-  for (let i = headerRowIndex + 1; i < csvData.length; i++) {
-    const row = csvData[i].split(",").map(removeQuotes);
+  for (let i = headerRowIndex + 1; i < rows.length; i++) {
+    const row = rows[i];
 
     // 空行をスキップ
-    if (row.length === 0 || row[0].trim() === "") {
+    if (row.length === 0 || !row[0] || row[0].trim() === "") {
       continue;
     }
 
     const orderDateValue = row[orderDateIndex]?.trim() || "";
     const tipValue = row[tipIndex]?.trim() || "";
 
-    if (!orderDateValue || !tipValue) {
+    // orderDateValueは必須、tipValueは"0"や"0.00"も有効な値として扱う
+    if (!orderDateValue || tipValue === "") {
       continue;
     }
 
@@ -3322,6 +3385,114 @@ async function renumberDistributionGrouping(storeId) {
     console.error("Renumber distribution_grouping error:", err);
   }
 }
+
+// ==================== User Settings API ====================
+
+// GET /api/user-settings - Get user settings
+app.get("/api/user-settings", authMiddleware, async (req, res) => {
+  try {
+    // Get or create user settings
+    const { data: userSettings, error: fetchError } = await supabase
+      .from("user_settings")
+      .select("*")
+      .eq("user_id", req.user.id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error("Supabase select user_settings error:", fetchError);
+      return res.status(500).json({ error: fetchError.message });
+    }
+
+    // If no settings exist, create default settings
+    if (!userSettings) {
+      const { data: newSettings, error: insertError } = await supabase
+        .from("user_settings")
+        .insert([
+          {
+            user_id: req.user.id,
+            time_format: "24h",
+          },
+        ])
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("Supabase insert user_settings error:", insertError);
+        return res.status(500).json({ error: insertError.message });
+      }
+
+      return res.status(200).json(newSettings);
+    }
+
+    res.status(200).json(userSettings);
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// PUT /api/user-settings - Update user settings
+app.put("/api/user-settings", authMiddleware, async (req, res) => {
+  try {
+    const { time_format } = req.body;
+
+    // Validate time_format
+    if (time_format && time_format !== "24h" && time_format !== "12h") {
+      return res.status(400).json({
+        error: "time_format must be '24h' or '12h'",
+      });
+    }
+
+    // Check if user settings exist
+    const { data: existingSettings } = await supabase
+      .from("user_settings")
+      .select("id")
+      .eq("user_id", req.user.id)
+      .maybeSingle();
+
+    if (existingSettings) {
+      // Update existing settings
+      const { data: updatedSettings, error: updateError } = await supabase
+        .from("user_settings")
+        .update({
+          time_format: time_format || "24h",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", req.user.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error("Supabase update user_settings error:", updateError);
+        return res.status(500).json({ error: updateError.message });
+      }
+
+      res.status(200).json(updatedSettings);
+    } else {
+      // Create new settings
+      const { data: newSettings, error: insertError } = await supabase
+        .from("user_settings")
+        .insert([
+          {
+            user_id: req.user.id,
+            time_format: time_format || "24h",
+          },
+        ])
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("Supabase insert user_settings error:", insertError);
+        return res.status(500).json({ error: insertError.message });
+      }
+
+      res.status(200).json(newSettings);
+    }
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
