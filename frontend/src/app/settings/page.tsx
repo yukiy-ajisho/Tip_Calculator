@@ -5,14 +5,26 @@ import { Pencil, Trash2 } from "lucide-react";
 import { AddRoleModal } from "@/components/AddRoleModal";
 import { AddExistingRoleModal } from "@/components/AddExistingRoleModal";
 import { InviteCodeModal } from "@/components/InviteCodeModal";
+import { TimeInput } from "@/components/TimeInput";
 import { api } from "@/lib/api";
-import { Store, RoleMapping, RolePercentage } from "@/types";
+import { Store, RoleMapping, RolePercentage, UserSettings } from "@/types";
+import { useUserSettings } from "@/hooks/useUserSettings";
+import { convert24To12 } from "@/lib/time-format";
 
 export default function SettingsPage() {
+  const { timeFormat } = useUserSettings();
   // Tab state
-  const [activeTab, setActiveTab] = useState<"role" | "percentage" | "store">(
-    "role"
+  const [activeTab, setActiveTab] = useState<
+    "role" | "percentage" | "store" | "user"
+  >("role");
+
+  // User Settings state
+  const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
+  const [isLoadingUserSettings, setIsLoadingUserSettings] = useState(false);
+  const [userSettingsError, setUserSettingsError] = useState<string | null>(
+    null
   );
+  const [isSavingUserSettings, setIsSavingUserSettings] = useState(false);
 
   // Store state
   const [stores, setStores] = useState<Store[]>([]);
@@ -72,19 +84,37 @@ export default function SettingsPage() {
   // Store Settings state
   const [isStoreSettingsEditMode, setIsStoreSettingsEditMode] = useState(false);
   const [editedStoreSettings, setEditedStoreSettings] = useState<
-    Map<string, { beforeHours: number | null; afterHours: number | null }>
+    Map<
+      string,
+      {
+        beforeHours: number | null;
+        afterHours: number | null;
+        startTimeAdjustment: number | null;
+      }
+    >
   >(new Map());
   const [storeSettingsInputs, setStoreSettingsInputs] = useState<
-    Map<string, { beforeHours: string; afterHours: string }>
+    Map<
+      string,
+      { beforeHours: string; afterHours: string; startTimeAdjustment: string }
+    >
   >(new Map());
   const [storeSettingsError, setStoreSettingsError] = useState<string | null>(
     null
   );
 
-  // Fetch stores on mount
+  // Fetch stores and user settings on mount
   useEffect(() => {
     fetchStores();
+    fetchUserSettings();
   }, []);
+
+  // Fetch user settings when User Settings tab is active
+  useEffect(() => {
+    if (activeTab === "user") {
+      fetchUserSettings();
+    }
+  }, [activeTab]);
 
   // Fetch role mappings when store is selected
   useEffect(() => {
@@ -99,6 +129,36 @@ export default function SettingsPage() {
       }
     }
   }, [selectedStoreId, activeTab]);
+
+  const fetchUserSettings = async () => {
+    setIsLoadingUserSettings(true);
+    setUserSettingsError(null);
+    try {
+      const data = await api.userSettings.getUserSettings();
+      setUserSettings(data);
+    } catch (error: any) {
+      console.error("Failed to fetch user settings:", error);
+      setUserSettingsError(error.message || "Failed to fetch user settings.");
+    } finally {
+      setIsLoadingUserSettings(false);
+    }
+  };
+
+  const handleTimeFormatChange = async (timeFormat: "24h" | "12h") => {
+    setIsSavingUserSettings(true);
+    setUserSettingsError(null);
+    try {
+      const updatedSettings = await api.userSettings.updateUserSettings(
+        timeFormat
+      );
+      setUserSettings(updatedSettings);
+    } catch (error: any) {
+      console.error("Failed to update user settings:", error);
+      setUserSettingsError(error.message || "Failed to update user settings.");
+    } finally {
+      setIsSavingUserSettings(false);
+    }
+  };
 
   const fetchStores = async () => {
     setIsLoadingStores(true);
@@ -571,22 +631,33 @@ export default function SettingsPage() {
       setIsStoreSettingsEditMode(true);
       const newEditedSettings = new Map<
         string,
-        { beforeHours: number | null; afterHours: number | null }
+        {
+          beforeHours: number | null;
+          afterHours: number | null;
+          startTimeAdjustment: number | null;
+        }
       >();
       const newInputs = new Map<
         string,
-        { beforeHours: string; afterHours: string }
+        { beforeHours: string; afterHours: string; startTimeAdjustment: string }
       >();
       stores.forEach((store) => {
         const beforeMinutes = store.off_hours_adjustment_before_hours ?? null;
         const afterMinutes = store.off_hours_adjustment_after_hours ?? null;
+        const startTimeAdjustmentMinutes =
+          store.start_time_adjustment_minutes ?? null;
         newEditedSettings.set(store.id, {
           beforeHours: beforeMinutes,
           afterHours: afterMinutes,
+          startTimeAdjustment: startTimeAdjustmentMinutes,
         });
         newInputs.set(store.id, {
           beforeHours: minutesToTimeString(beforeMinutes),
           afterHours: minutesToTimeString(afterMinutes),
+          startTimeAdjustment:
+            startTimeAdjustmentMinutes === null
+              ? ""
+              : String(startTimeAdjustmentMinutes),
         });
       });
       setEditedStoreSettings(newEditedSettings);
@@ -596,76 +667,141 @@ export default function SettingsPage() {
 
   const handleStoreSettingsFieldChange = (
     storeId: string,
-    field: "beforeHours" | "afterHours",
+    field: "beforeHours" | "afterHours" | "startTimeAdjustment",
     value: string
   ) => {
-    // Allow HH:MM format or integer format (for backward compatibility)
-    // Pattern: empty string, digits only, or HH:MM format
-    const timePattern = /^(\d*:?\d*)$/;
-    if (timePattern.test(value)) {
-      setStoreSettingsInputs((prev) => {
-        const newMap = new Map(prev);
-        const current = newMap.get(storeId) || {
-          beforeHours: "",
-          afterHours: "",
-        };
-        newMap.set(storeId, { ...current, [field]: value });
-        return newMap;
-      });
+    if (field === "startTimeAdjustment") {
+      // For startTimeAdjustment, only allow digits
+      const numericPattern = /^\d*$/;
+      if (numericPattern.test(value)) {
+        setStoreSettingsInputs((prev) => {
+          const newMap = new Map(prev);
+          const current = newMap.get(storeId) || {
+            beforeHours: "",
+            afterHours: "",
+            startTimeAdjustment: "",
+          };
+          newMap.set(storeId, { ...current, [field]: value });
+          return newMap;
+        });
+      }
+    } else {
+      // Allow HH:MM format or integer format (for backward compatibility)
+      // Pattern: empty string, digits only, or HH:MM format
+      const timePattern = /^(\d*:?\d*)$/;
+      if (timePattern.test(value)) {
+        setStoreSettingsInputs((prev) => {
+          const newMap = new Map(prev);
+          const current = newMap.get(storeId) || {
+            beforeHours: "",
+            afterHours: "",
+            startTimeAdjustment: "",
+          };
+          newMap.set(storeId, { ...current, [field]: value });
+          return newMap;
+        });
+      }
     }
   };
 
   const handleStoreSettingsFieldBlur = (
     storeId: string,
-    field: "beforeHours" | "afterHours"
+    field: "beforeHours" | "afterHours" | "startTimeAdjustment"
   ) => {
     const inputValue = storeSettingsInputs.get(storeId)?.[field] || "";
 
-    // Validate time string format
-    if (!validateTimeString(inputValue)) {
-      setStoreSettingsError(
-        `${
-          field === "beforeHours" ? "Before Hours" : "After Hours"
-        } must be in HH:MM format (0:00 to 24:00) or integer (0-24)`
-      );
-      return;
-    }
+    if (field === "startTimeAdjustment") {
+      // For startTimeAdjustment, validate as integer (minutes)
+      const numericValue = inputValue === "" ? null : parseInt(inputValue, 10);
+      if (inputValue !== "" && (isNaN(numericValue!) || numericValue! < 0)) {
+        setStoreSettingsError(
+          "Start Time Adjustment must be a non-negative integer (minutes)"
+        );
+        return;
+      }
 
-    // Convert time string to minutes
-    const minutesValue = timeStringToMinutes(inputValue);
+      setStoreSettingsError(null);
 
-    // Additional validation: 0-1440 minutes (0-24 hours)
-    if (minutesValue !== null && (minutesValue < 0 || minutesValue > 24 * 60)) {
-      setStoreSettingsError(
-        `${
-          field === "beforeHours" ? "Before Hours" : "After Hours"
-        } must be between 0:00 and 24:00`
-      );
-      return;
-    }
-
-    setStoreSettingsError(null);
-
-    // Update edited settings (store as minutes)
-    setEditedStoreSettings((prev) => {
-      const newMap = new Map(prev);
-      const current = newMap.get(storeId) || {
-        beforeHours: null,
-        afterHours: null,
-      };
-      newMap.set(storeId, { ...current, [field]: minutesValue });
-      return newMap;
-    });
-
-    // Update input state to show formatted value (or keep empty if null)
-    setStoreSettingsInputs((prev) => {
-      const newMap = new Map(prev);
-      newMap.set(storeId, {
-        ...(prev.get(storeId) || { beforeHours: "", afterHours: "" }),
-        [field]: minutesToTimeString(minutesValue),
+      // Update edited settings
+      setEditedStoreSettings((prev) => {
+        const newMap = new Map(prev);
+        const current = newMap.get(storeId) || {
+          beforeHours: null,
+          afterHours: null,
+          startTimeAdjustment: null,
+        };
+        newMap.set(storeId, { ...current, [field]: numericValue });
+        return newMap;
       });
-      return newMap;
-    });
+
+      // Update input state
+      setStoreSettingsInputs((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(storeId, {
+          ...(prev.get(storeId) || {
+            beforeHours: "",
+            afterHours: "",
+            startTimeAdjustment: "",
+          }),
+          [field]: inputValue,
+        });
+        return newMap;
+      });
+    } else {
+      // Validate time string format
+      if (!validateTimeString(inputValue)) {
+        setStoreSettingsError(
+          `${
+            field === "beforeHours" ? "Before Hours" : "After Hours"
+          } must be in HH:MM format (0:00 to 24:00) or integer (0-24)`
+        );
+        return;
+      }
+
+      // Convert time string to minutes
+      const minutesValue = timeStringToMinutes(inputValue);
+
+      // Additional validation: 0-1440 minutes (0-24 hours)
+      if (
+        minutesValue !== null &&
+        (minutesValue < 0 || minutesValue > 24 * 60)
+      ) {
+        setStoreSettingsError(
+          `${
+            field === "beforeHours" ? "Before Hours" : "After Hours"
+          } must be between 0:00 and 24:00`
+        );
+        return;
+      }
+
+      setStoreSettingsError(null);
+
+      // Update edited settings (store as minutes)
+      setEditedStoreSettings((prev) => {
+        const newMap = new Map(prev);
+        const current = newMap.get(storeId) || {
+          beforeHours: null,
+          afterHours: null,
+          startTimeAdjustment: null,
+        };
+        newMap.set(storeId, { ...current, [field]: minutesValue });
+        return newMap;
+      });
+
+      // Update input state to show formatted value (or keep empty if null)
+      setStoreSettingsInputs((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(storeId, {
+          ...(prev.get(storeId) || {
+            beforeHours: "",
+            afterHours: "",
+            startTimeAdjustment: "",
+          }),
+          [field]: minutesToTimeString(minutesValue),
+        });
+        return newMap;
+      });
+    }
   };
 
   const handleStoreSettingsSave = async () => {
@@ -676,6 +812,7 @@ export default function SettingsPage() {
         await api.stores.updateStoreSettings(storeId, {
           off_hours_adjustment_before_hours: settings.beforeHours,
           off_hours_adjustment_after_hours: settings.afterHours,
+          start_time_adjustment_minutes: settings.startTimeAdjustment,
         });
       }
 
@@ -797,6 +934,19 @@ export default function SettingsPage() {
             >
               Store Setting
               {activeTab === "store" && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab("user")}
+              className={`px-6 py-3 font-medium transition-colors relative ${
+                activeTab === "user"
+                  ? "text-blue-600"
+                  : "text-gray-600 hover:text-blue-600"
+              }`}
+            >
+              User Setting
+              {activeTab === "user" && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
               )}
             </button>
@@ -1270,6 +1420,9 @@ export default function SettingsPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                       After Hours Adjustment
                     </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                      Start Time Adjustment (minutes)
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -1279,7 +1432,7 @@ export default function SettingsPage() {
                   {isLoadingStores ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="px-4 py-3 text-center text-gray-500"
                       >
                         Loading stores...
@@ -1288,7 +1441,7 @@ export default function SettingsPage() {
                   ) : stores.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="px-4 py-3 text-center text-gray-500"
                       >
                         No stores found. Add one!
@@ -1306,6 +1459,10 @@ export default function SettingsPage() {
                         editedSettings?.afterHours ??
                         store.off_hours_adjustment_after_hours ??
                         null;
+                      const startTimeAdjustmentMinutes =
+                        editedSettings?.startTimeAdjustment ??
+                        store.start_time_adjustment_minutes ??
+                        null;
 
                       return (
                         <tr key={store.id}>
@@ -1320,9 +1477,8 @@ export default function SettingsPage() {
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
                             {isStoreSettingsEditMode ? (
-                              <input
-                                type="text"
-                                inputMode="numeric"
+                              <TimeInput
+                                timeFormat={timeFormat}
                                 value={
                                   inputState?.beforeHours !== undefined
                                     ? inputState.beforeHours
@@ -1330,27 +1486,136 @@ export default function SettingsPage() {
                                     ? ""
                                     : minutesToTimeString(beforeMinutes)
                                 }
-                                onChange={(e) =>
-                                  handleStoreSettingsFieldChange(
-                                    store.id,
-                                    "beforeHours",
-                                    e.target.value
-                                  )
-                                }
-                                onBlur={() =>
-                                  handleStoreSettingsFieldBlur(
-                                    store.id,
-                                    "beforeHours"
-                                  )
-                                }
-                                className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="H:MM"
+                                onChange={(value) => {
+                                  // Update input state immediately
+                                  setStoreSettingsInputs((prev) => {
+                                    const newMap = new Map(prev);
+                                    const current = newMap.get(store.id) || {
+                                      beforeHours: "",
+                                      afterHours: "",
+                                      startTimeAdjustment: "",
+                                    };
+                                    newMap.set(store.id, {
+                                      ...current,
+                                      beforeHours: value,
+                                    });
+                                    return newMap;
+                                  });
+                                  // Convert to minutes and update edited settings
+                                  const minutesValue =
+                                    timeStringToMinutes(value);
+                                  setEditedStoreSettings((prev) => {
+                                    const newMap = new Map(prev);
+                                    const current = newMap.get(store.id) || {
+                                      beforeHours: null,
+                                      afterHours: null,
+                                      startTimeAdjustment: null,
+                                    };
+                                    newMap.set(store.id, {
+                                      ...current,
+                                      beforeHours: minutesValue,
+                                    });
+                                    return newMap;
+                                  });
+                                }}
+                                onBlur={() => {
+                                  // Validate on blur
+                                  const inputValue =
+                                    storeSettingsInputs.get(store.id)
+                                      ?.beforeHours || "";
+                                  if (
+                                    inputValue &&
+                                    !validateTimeString(inputValue)
+                                  ) {
+                                    setStoreSettingsError(
+                                      "Before Hours Adjustment must be in HH:MM format (0:00 to 24:00)"
+                                    );
+                                  } else {
+                                    setStoreSettingsError(null);
+                                  }
+                                }}
                               />
                             ) : (
                               <span className="text-gray-900">
                                 {beforeMinutes === null
                                   ? "-"
+                                  : timeFormat === "12h"
+                                  ? convert24To12(
+                                      minutesToTimeString(beforeMinutes)
+                                    )
                                   : minutesToTimeString(beforeMinutes)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                            {isStoreSettingsEditMode ? (
+                              <TimeInput
+                                timeFormat={timeFormat}
+                                value={
+                                  inputState?.afterHours !== undefined
+                                    ? inputState.afterHours
+                                    : afterMinutes === null
+                                    ? ""
+                                    : minutesToTimeString(afterMinutes)
+                                }
+                                onChange={(value) => {
+                                  // Update input state immediately
+                                  setStoreSettingsInputs((prev) => {
+                                    const newMap = new Map(prev);
+                                    const current = newMap.get(store.id) || {
+                                      beforeHours: "",
+                                      afterHours: "",
+                                      startTimeAdjustment: "",
+                                    };
+                                    newMap.set(store.id, {
+                                      ...current,
+                                      afterHours: value,
+                                    });
+                                    return newMap;
+                                  });
+                                  // Convert to minutes and update edited settings
+                                  const minutesValue =
+                                    timeStringToMinutes(value);
+                                  setEditedStoreSettings((prev) => {
+                                    const newMap = new Map(prev);
+                                    const current = newMap.get(store.id) || {
+                                      beforeHours: null,
+                                      afterHours: null,
+                                      startTimeAdjustment: null,
+                                    };
+                                    newMap.set(store.id, {
+                                      ...current,
+                                      afterHours: minutesValue,
+                                    });
+                                    return newMap;
+                                  });
+                                }}
+                                onBlur={() => {
+                                  // Validate on blur
+                                  const inputValue =
+                                    storeSettingsInputs.get(store.id)
+                                      ?.afterHours || "";
+                                  if (
+                                    inputValue &&
+                                    !validateTimeString(inputValue)
+                                  ) {
+                                    setStoreSettingsError(
+                                      "After Hours Adjustment must be in HH:MM format (0:00 to 24:00)"
+                                    );
+                                  } else {
+                                    setStoreSettingsError(null);
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <span className="text-gray-900">
+                                {afterMinutes === null
+                                  ? "-"
+                                  : timeFormat === "12h"
+                                  ? convert24To12(
+                                      minutesToTimeString(afterMinutes)
+                                    )
+                                  : minutesToTimeString(afterMinutes)}
                               </span>
                             )}
                           </td>
@@ -1360,33 +1625,33 @@ export default function SettingsPage() {
                                 type="text"
                                 inputMode="numeric"
                                 value={
-                                  inputState?.afterHours !== undefined
-                                    ? inputState.afterHours
-                                    : afterMinutes === null
+                                  inputState?.startTimeAdjustment !== undefined
+                                    ? inputState.startTimeAdjustment
+                                    : startTimeAdjustmentMinutes === null
                                     ? ""
-                                    : minutesToTimeString(afterMinutes)
+                                    : String(startTimeAdjustmentMinutes)
                                 }
                                 onChange={(e) =>
                                   handleStoreSettingsFieldChange(
                                     store.id,
-                                    "afterHours",
+                                    "startTimeAdjustment",
                                     e.target.value
                                   )
                                 }
                                 onBlur={() =>
                                   handleStoreSettingsFieldBlur(
                                     store.id,
-                                    "afterHours"
+                                    "startTimeAdjustment"
                                   )
                                 }
                                 className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="H:MM"
+                                placeholder="minutes"
                               />
                             ) : (
                               <span className="text-gray-900">
-                                {afterMinutes === null
+                                {startTimeAdjustmentMinutes === null
                                   ? "-"
-                                  : minutesToTimeString(afterMinutes)}
+                                  : String(startTimeAdjustmentMinutes)}
                               </span>
                             )}
                           </td>
@@ -1416,6 +1681,69 @@ export default function SettingsPage() {
             >
               Add Store
             </button>
+          </div>
+        )}
+
+        {/* User Settings Tab */}
+        {activeTab === "user" && (
+          <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+            {isLoadingUserSettings ? (
+              <div className="text-center py-8 text-gray-500">
+                Loading user settings...
+              </div>
+            ) : userSettingsError ? (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                <p className="text-red-800 text-sm">{userSettingsError}</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Time Format Setting */}
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-gray-700">
+                    Time Format
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-gray-500">
+                      This setting applies to all time input fields in the
+                      application.
+                    </p>
+                    <div className="flex items-center space-x-4">
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="timeFormat"
+                          value="24h"
+                          checked={userSettings?.time_format === "24h"}
+                          onChange={() => handleTimeFormatChange("24h")}
+                          disabled={isSavingUserSettings}
+                          className="mr-2"
+                        />
+                        <span className="text-sm text-gray-700">
+                          24-hour format (HH:MM)
+                        </span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="timeFormat"
+                          value="12h"
+                          checked={userSettings?.time_format === "12h"}
+                          onChange={() => handleTimeFormatChange("12h")}
+                          disabled={isSavingUserSettings}
+                          className="mr-2"
+                        />
+                        <span className="text-sm text-gray-700">
+                          12-hour format (HH:MM AM/PM)
+                        </span>
+                      </label>
+                      {isSavingUserSettings && (
+                        <span className="text-sm text-gray-500">Saving...</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

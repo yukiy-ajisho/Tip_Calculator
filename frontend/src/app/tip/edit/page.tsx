@@ -428,9 +428,9 @@ export default function EditPage() {
           </button>
           <button
             onClick={handleNext}
-            disabled={incompleteRecordsCount > 0 || isCalculating}
+            disabled={isCalculating}
             className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-              incompleteRecordsCount > 0 || isCalculating
+              isCalculating
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                 : "bg-blue-500 text-white hover:bg-blue-600"
             }`}
