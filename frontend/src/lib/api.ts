@@ -280,6 +280,16 @@ export const api = {
         }
       );
     },
+    deleteCompletedCalculation: (
+      storeId: string
+    ): Promise<{ success: boolean }> => {
+      return apiRequest<{ success: boolean }>(
+        `/api/tips/calculation/completed?storeId=${storeId}`,
+        {
+          method: "DELETE",
+        }
+      );
+    },
     calculate: (
       storeId: string
     ): Promise<{ success: boolean; calculationId: string }> => {

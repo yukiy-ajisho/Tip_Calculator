@@ -204,8 +204,13 @@ export default function ImportPage() {
     }
 
     try {
-      // 既存データを削除
-      await api.tips.deleteCalculation(selectedStore);
+      if (calculationStatus.status === "completed") {
+        // 計算済み（Save Tips 未実行）のデータを削除
+        await api.tips.deleteCompletedCalculation(selectedStore);
+      } else {
+        // processing 中の下書きデータを削除
+        await api.tips.deleteCalculation(selectedStore);
+      }
       setCalculationStatus({ status: null, calculationId: null });
     } catch (error) {
       console.error("Failed to delete existing data:", error);

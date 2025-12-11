@@ -1348,6 +1348,7 @@ app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
 });
 
 // DELETE /api/tips/calculation
+// processing 状態の計算と中間データを削除する（既存の動き）
 app.delete("/api/tips/calculation", authMiddleware, async (req, res) => {
   try {
     const { storeId } = req.query;
@@ -1453,6 +1454,151 @@ app.delete("/api/tips/calculation", authMiddleware, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// DELETE /api/tips/calculation/completed
+// completed 状態（/tip/calculate まで進み Save Tips 未実行）の計算と結果・中間データを削除
+app.delete(
+  "/api/tips/calculation/completed",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { storeId } = req.query;
+
+      if (!storeId) {
+        return res.status(400).json({ error: "storeId is required" });
+      }
+
+      // 1. ユーザー権限チェック
+      const { data: storeUsers, error: storeUsersError } = await supabase
+        .from("store_users")
+        .select("store_id")
+        .eq("user_id", req.user.id);
+
+      if (storeUsersError) {
+        console.error("Supabase select store_users error:", storeUsersError);
+        throw new Error(
+          `Failed to fetch user stores: ${storeUsersError.message}`
+        );
+      }
+
+      if (!storeUsers || storeUsers.length === 0) {
+        return res.status(403).json({
+          error: "You do not have permission to access any stores",
+        });
+      }
+
+      const storeIds = storeUsers.map((su) => su.store_id);
+      if (!storeIds.includes(storeId)) {
+        return res.status(403).json({
+          error: "You do not have permission to access this store",
+        });
+      }
+
+      // 2. 対象の completed 計算を取得（設計上 1 件のみ存在する想定）
+      const { data: calculation, error: calcError } = await supabase
+        .from("tip_calculations")
+        .select("id")
+        .eq("stores_id", storeId)
+        .eq("status", "completed")
+        .single();
+
+      if (calcError || !calculation) {
+        console.error("Supabase select tip_calculations error:", calcError);
+        return res.status(404).json({
+          error: "No completed calculation found for this store",
+        });
+      }
+
+      const calculationId = calculation.id;
+
+      // 3. 計算結果を削除
+      const { error: deleteResultsError } = await supabase
+        .from("tip_calculation_results")
+        .delete()
+        .eq("calculation_id", calculationId);
+
+      if (deleteResultsError) {
+        console.error(
+          "Supabase delete tip_calculation_results error:",
+          deleteResultsError
+        );
+        throw new Error(
+          `Failed to delete tip_calculation_results: ${deleteResultsError.message}`
+        );
+      }
+
+      // 4. completed 計算本体を削除
+      const { error: deleteCalcError } = await supabase
+        .from("tip_calculations")
+        .delete()
+        .eq("id", calculationId)
+        .eq("status", "completed");
+
+      if (deleteCalcError) {
+        console.error(
+          "Supabase delete tip_calculations error:",
+          deleteCalcError
+        );
+        throw new Error(
+          `Failed to delete tip_calculations: ${deleteCalcError.message}`
+        );
+      }
+
+      // 5. 中間データもクリアして再インポートを可能にする
+      const { error: deleteWorkingHoursError } = await supabase
+        .from("formatted_working_hours")
+        .delete()
+        .eq("stores_id", storeId);
+
+      if (deleteWorkingHoursError) {
+        console.error(
+          "Supabase delete formatted_working_hours error:",
+          deleteWorkingHoursError
+        );
+        throw new Error(
+          `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`
+        );
+      }
+
+      const { error: deleteTipDataError } = await supabase
+        .from("formatted_tip_data")
+        .delete()
+        .eq("stores_id", storeId);
+
+      if (deleteTipDataError) {
+        console.error(
+          "Supabase delete formatted_tip_data error:",
+          deleteTipDataError
+        );
+        throw new Error(
+          `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`
+        );
+      }
+
+      const { error: deleteCashTipError } = await supabase
+        .from("formatted_cash_tip")
+        .delete()
+        .eq("stores_id", storeId);
+
+      if (deleteCashTipError) {
+        console.error(
+          "Supabase delete formatted_cash_tip error:",
+          deleteCashTipError
+        );
+        throw new Error(
+          `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`
+        );
+      }
+
+      res.status(200).json({
+        success: true,
+      });
+    } catch (error) {
+      console.error("Error deleting completed calculation data:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
 
 // POST /api/tips/calculate
 app.post("/api/tips/calculate", authMiddleware, async (req, res) => {
