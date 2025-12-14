@@ -54,6 +54,73 @@ export default function ImportPage() {
     data: [],
   });
 
+  const STORAGE_KEY = "lastTipSession";
+  const SESSION_FLAG_KEY = "directNavigationFromEdit";
+
+  interface LastTipSession {
+    storeId: string;
+    lastPage: "edit" | "calculate";
+    calculationId?: string;
+  }
+
+  // ページ読み込み時にsessionStorageとlocalStorageをチェック
+  useEffect(() => {
+    const checkStorageAndRedirect = async () => {
+      try {
+        // 1. sessionStorageフラグをチェック
+        const directNavigationFlag = sessionStorage.getItem(SESSION_FLAG_KEY);
+        if (directNavigationFlag === "true") {
+          // 直接ナビゲーションの場合、localStorageをクリアしてフラグを削除
+          localStorage.removeItem(STORAGE_KEY);
+          sessionStorage.removeItem(SESSION_FLAG_KEY);
+          return;
+        }
+
+        // 2. localStorageから前回のセッション情報を取得
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (!stored) {
+          return;
+        }
+
+        const lastSession: LastTipSession = JSON.parse(stored);
+
+        // 3. lastPage === "calculate"の場合、/tip/calculateにリダイレクト
+        if (lastSession.lastPage === "calculate" && lastSession.calculationId) {
+          router.push(
+            `/tip/calculate?calculationId=${lastSession.calculationId}`
+          );
+          return;
+        }
+
+        // 4. lastPage === "edit"の場合、statusをチェック
+        if (lastSession.lastPage === "edit" && lastSession.storeId) {
+          try {
+            const response = await api.tips.getCalculationStatus(
+              lastSession.storeId
+            );
+
+            if (
+              response.success &&
+              response.status === "processing" &&
+              response.calculationId
+            ) {
+              // status === "processing"の場合、/tip/editにリダイレクト
+              router.push(`/tip/edit?storeId=${lastSession.storeId}`);
+              return;
+            }
+          } catch (error) {
+            console.error("Failed to check calculation status:", error);
+            // エラーが発生した場合、リダイレクトしない
+          }
+        }
+      } catch (error) {
+        console.error("Error checking storage:", error);
+      }
+    };
+
+    checkStorageAndRedirect();
+  }, [router]);
+
   // ストア一覧を取得
   useEffect(() => {
     const fetchStores = async () => {
@@ -178,6 +245,9 @@ export default function ImportPage() {
   };
 
   const handleEditExisting = () => {
+    // 直接ナビゲーションのフラグを設定
+    sessionStorage.setItem(SESSION_FLAG_KEY, "true");
+
     // statusに応じてリダイレクト先を変更
     if (
       calculationStatus.status === "completed" &&
@@ -212,6 +282,8 @@ export default function ImportPage() {
         await api.tips.deleteCalculation(selectedStore);
       }
       setCalculationStatus({ status: null, calculationId: null });
+      // localStorageをクリア
+      localStorage.removeItem(STORAGE_KEY);
     } catch (error) {
       console.error("Failed to delete existing data:", error);
       alert("Failed to delete existing data. Please try again.");
@@ -324,7 +396,7 @@ export default function ImportPage() {
           <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center gap-4">
             <p className="text-sm text-yellow-800 flex-1">
               {calculationStatus.status === "completed"
-                ? "Calculation results are available. You can preview the results or import new data."
+                ? "Calculation results from a prior session are available but not saved. View the results now or clear the old data to import a new data set."
                 : "Existing data found. Someone may be editing this data."}
             </p>
             <div className="flex gap-3">
@@ -333,14 +405,14 @@ export default function ImportPage() {
                 className="px-4 py-1.5 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
               >
                 {calculationStatus.status === "completed"
-                  ? "Preview Results"
+                  ? "View Previous Results"
                   : "Edit Existing Data"}
               </button>
               <button
                 onClick={handleImportNew}
                 className="px-4 py-1.5 text-sm rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors"
               >
-                Import New Data
+                Clear Old Data
               </button>
             </div>
           </div>
@@ -376,17 +448,25 @@ export default function ImportPage() {
 
         {/* Nextボタン */}
         <div className="flex justify-end mt-8">
-          <button
-            onClick={handleNext}
-            disabled={!isNextEnabled || !!calculationStatus.status}
-            className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-              isNextEnabled && !calculationStatus.status
-                ? "bg-blue-500 text-white hover:bg-blue-600"
-                : "bg-gray-300 text-gray-500 cursor-not-allowed"
-            }`}
-          >
-            Next
-          </button>
+          <div className="relative group">
+            <button
+              onClick={handleNext}
+              disabled={!isNextEnabled || !!calculationStatus.status}
+              className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+                isNextEnabled && !calculationStatus.status
+                  ? "bg-blue-500 text-white hover:bg-blue-600"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
+            >
+              Next
+            </button>
+            {selectedStore === "" && (
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-10">
+                Please select a store
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

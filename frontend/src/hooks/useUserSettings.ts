@@ -19,8 +19,13 @@ export function useUserSettings() {
       } catch (err: any) {
         console.error("Failed to fetch user settings:", err);
         setError(err.message || "Failed to fetch user settings.");
-        // Default to 24h if fetch fails
-        setUserSettings({ id: "", user_id: "", time_format: "24h" });
+        // Default to 24h and false if fetch fails
+        setUserSettings({
+          id: "",
+          user_id: "",
+          time_format: "24h",
+          show_archived_records: false,
+        });
       } finally {
         setIsLoading(false);
       }
@@ -32,6 +37,7 @@ export function useUserSettings() {
   return {
     userSettings,
     timeFormat: userSettings?.time_format || "24h",
+    showArchivedRecords: userSettings?.show_archived_records ?? false,
     isLoading,
     error,
   };

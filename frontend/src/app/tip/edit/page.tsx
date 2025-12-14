@@ -37,6 +37,7 @@ export default function EditPage() {
   const [originalWorkingHoursData, setOriginalWorkingHoursData] = useState<
     FormattedWorkingHours[]
   >([]);
+  const [deletedRecordIds, setDeletedRecordIds] = useState<string[]>([]);
   const [isCalculating, setIsCalculating] = useState(false);
 
   // Tip Data の編集モード状態
@@ -93,6 +94,14 @@ export default function EditPage() {
           (record) => !record.is_complete
         ).length;
         setIncompleteRecordsCount(initialIncompleteCount);
+
+        // データ取得成功後、localStorageに保存
+        const STORAGE_KEY = "lastTipSession";
+        const lastSession = {
+          storeId: storeId,
+          lastPage: "edit" as const,
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(lastSession));
       } catch (err) {
         console.error("Error fetching formatted data:", err);
         setError(err instanceof Error ? err.message : "Failed to load data");
@@ -114,6 +123,10 @@ export default function EditPage() {
     }
 
     try {
+      // 直接ナビゲーションのフラグを設定
+      const SESSION_FLAG_KEY = "directNavigationFromEdit";
+      sessionStorage.setItem(SESSION_FLAG_KEY, "true");
+
       // 既存データを削除（確認ダイアログなし）
       await api.tips.deleteCalculation(storeId);
       // 削除後、importページに戻る
@@ -168,8 +181,16 @@ export default function EditPage() {
         await api.tips.updateFormattedWorkingHours(changedRecords);
       }
 
-      // 5. 保存後、元のデータを更新
+      // 5. 削除されたレコードをバックエンドから削除
+      if (deletedRecordIds.length > 0) {
+        await Promise.all(
+          deletedRecordIds.map((id) => api.tips.deleteFormattedWorkingHours(id))
+        );
+      }
+
+      // 6. 保存後、元のデータを更新
       setOriginalWorkingHoursData(JSON.parse(JSON.stringify(updatedData)));
+      setDeletedRecordIds([]);
       setIsEditingWorkingHours(false);
     } catch (error) {
       console.error("Failed to save working hours:", error);
@@ -180,9 +201,30 @@ export default function EditPage() {
   const handleCancelWorkingHours = () => {
     // 元のデータに復元
     setWorkingHoursData(JSON.parse(JSON.stringify(originalWorkingHoursData)));
+    setDeletedRecordIds([]);
     setIsEditingWorkingHours(false);
     // incomplete records数を再計算（is_completeで判定）
     const incompleteCount = originalWorkingHoursData.filter(
+      (record) => !record.is_complete
+    ).length;
+    setIncompleteRecordsCount(incompleteCount);
+  };
+
+  const handleDeleteWorkingHoursRecord = (id: string) => {
+    // 削除後のデータを計算
+    const updatedData = workingHoursData.filter((record) => record.id !== id);
+
+    // ローカル状態から削除
+    setWorkingHoursData(updatedData);
+
+    // 削除されたレコードIDを追跡（元々存在していたレコードのみ）
+    const originalRecord = originalWorkingHoursData.find((r) => r.id === id);
+    if (originalRecord) {
+      setDeletedRecordIds((prev) => [...prev, id]);
+    }
+
+    // incomplete records数を再計算
+    const incompleteCount = updatedData.filter(
       (record) => !record.is_complete
     ).length;
     setIncompleteRecordsCount(incompleteCount);
@@ -348,6 +390,7 @@ export default function EditPage() {
                 onDataChange={setWorkingHoursData}
                 onCancel={handleCancelWorkingHours}
                 onIncompleteCountChange={setIncompleteRecordsCount}
+                onDeleteRecord={handleDeleteWorkingHoursRecord}
               />
             )}
           </div>

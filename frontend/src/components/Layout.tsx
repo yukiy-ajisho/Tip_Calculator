@@ -63,10 +63,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
               const IconComponent = item.icon;
               const isActive =
                 pathname === item.href || pathname.startsWith(item.href + "/");
+
+              // Tipリンクの場合、現在のパスが/tip/editまたは/tip/calculateの場合にsessionStorageフラグを設定
+              const handleTipLinkClick = () => {
+                if (item.id === "tip") {
+                  const SESSION_FLAG_KEY = "directNavigationFromEdit";
+                  if (
+                    pathname.startsWith("/tip/edit") ||
+                    pathname.startsWith("/tip/calculate")
+                  ) {
+                    sessionStorage.setItem(SESSION_FLAG_KEY, "true");
+                  }
+                }
+              };
+
               return (
                 <Link
                   key={item.id}
                   href={item.href}
+                  onClick={handleTipLinkClick}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors border-0 no-underline rounded-md ${
                     isActive
                       ? "text-blue-700 font-semibold"

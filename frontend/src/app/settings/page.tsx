@@ -148,9 +148,27 @@ export default function SettingsPage() {
     setIsSavingUserSettings(true);
     setUserSettingsError(null);
     try {
-      const updatedSettings = await api.userSettings.updateUserSettings(
-        timeFormat
-      );
+      const updatedSettings = await api.userSettings.updateUserSettings({
+        timeFormat,
+        showArchivedRecords: userSettings?.show_archived_records ?? false,
+      });
+      setUserSettings(updatedSettings);
+    } catch (error: any) {
+      console.error("Failed to update user settings:", error);
+      setUserSettingsError(error.message || "Failed to update user settings.");
+    } finally {
+      setIsSavingUserSettings(false);
+    }
+  };
+
+  const handleArchiveDisplayChange = async (showArchived: boolean) => {
+    setIsSavingUserSettings(true);
+    setUserSettingsError(null);
+    try {
+      const updatedSettings = await api.userSettings.updateUserSettings({
+        timeFormat: userSettings?.time_format || "24h",
+        showArchivedRecords: showArchived,
+      });
       setUserSettings(updatedSettings);
     } catch (error: any) {
       console.error("Failed to update user settings:", error);
@@ -1659,7 +1677,8 @@ export default function SettingsPage() {
                             {store.role === "owner" && (
                               <button
                                 onClick={() => handleGenerateInviteCode(store)}
-                                className="px-3 py-1 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs"
+                                disabled={isStoreSettingsEditMode}
+                                className="px-3 py-1 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-green-500"
                               >
                                 Generate Code
                               </button>
@@ -1734,6 +1753,58 @@ export default function SettingsPage() {
                         />
                         <span className="text-sm text-gray-700">
                           12-hour format (HH:MM AM/PM)
+                        </span>
+                      </label>
+                      {isSavingUserSettings && (
+                        <span className="text-sm text-gray-500">Saving...</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Archive Display Setting */}
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-gray-700">
+                    Archive Display
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-gray-500">
+                      Control whether archived records are displayed in the
+                      Records page.
+                    </p>
+                    <div className="flex items-center space-x-4">
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="archiveDisplay"
+                          value="hide"
+                          checked={
+                            (userSettings?.show_archived_records ?? false) ===
+                            false
+                          }
+                          onChange={() => handleArchiveDisplayChange(false)}
+                          disabled={isSavingUserSettings}
+                          className="mr-2"
+                        />
+                        <span className="text-sm text-gray-700">
+                          Hide Archive
+                        </span>
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="archiveDisplay"
+                          value="show"
+                          checked={
+                            (userSettings?.show_archived_records ?? false) ===
+                            true
+                          }
+                          onChange={() => handleArchiveDisplayChange(true)}
+                          disabled={isSavingUserSettings}
+                          className="mr-2"
+                        />
+                        <span className="text-sm text-gray-700">
+                          Show Archive
                         </span>
                       </label>
                       {isSavingUserSettings && (

@@ -1838,10 +1838,12 @@ app.get("/api/tips/records", authMiddleware, async (req, res) => {
 
     const calculationIds = calculations.map((calc) => calc.id);
 
-    // 3. tip_calculation_resultsを取得
+    // 3. tip_calculation_resultsを取得（is_archivedとarchived_atフィールドを含む）
     const { data: results, error: resultsError } = await supabase
       .from("tip_calculation_results")
-      .select("id, calculation_id, name, date, tips, cash_tips")
+      .select(
+        "id, calculation_id, name, date, tips, cash_tips, is_archived, archived_at"
+      )
       .in("calculation_id", calculationIds);
 
     if (resultsError) {
@@ -1888,6 +1890,8 @@ app.get("/api/tips/records", authMiddleware, async (req, res) => {
           name: result.name || "",
           tips: result.tips || 0,
           cashTips: result.cash_tips || 0,
+          isArchived: result.is_archived || false,
+          archivedAt: result.archived_at || null,
         };
       })
       .sort((a, b) => {
@@ -2040,6 +2044,255 @@ app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// DELETE /api/tips/calculation-results/:id
+app.delete(
+  "/api/tips/calculation-results/:id",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res.status(400).json({ error: "id is required" });
+      }
+
+      // 1. ユーザーが権限を持つ店を取得
+      const { data: storeUsers, error: storeUsersError } = await supabase
+        .from("store_users")
+        .select("store_id")
+        .eq("user_id", req.user.id);
+
+      if (storeUsersError) {
+        console.error("Supabase select store_users error:", storeUsersError);
+        throw new Error(
+          `Failed to fetch user stores: ${storeUsersError.message}`
+        );
+      }
+
+      if (!storeUsers || storeUsers.length === 0) {
+        return res.status(403).json({ error: "No store access" });
+      }
+
+      const storeIds = storeUsers.map((su) => su.store_id);
+
+      // 2. レコードが存在し、ユーザーがアクセス権を持つか確認
+      const { data: record, error: fetchError } = await supabase
+        .from("tip_calculation_results")
+        .select("id, calculation_id")
+        .eq("id", id)
+        .single();
+
+      if (fetchError || !record) {
+        return res.status(404).json({ error: "Record not found" });
+      }
+
+      // 3. calculation_idからtip_calculationsを取得して権限チェック
+      const { data: calculation, error: calcError } = await supabase
+        .from("tip_calculations")
+        .select("stores_id")
+        .eq("id", record.calculation_id)
+        .single();
+
+      if (calcError || !calculation) {
+        return res.status(404).json({ error: "Calculation not found" });
+      }
+
+      if (!storeIds.includes(calculation.stores_id)) {
+        return res.status(403).json({
+          error: "You do not have permission to delete this record",
+        });
+      }
+
+      // 4. レコードを削除
+      const { error: deleteError } = await supabase
+        .from("tip_calculation_results")
+        .delete()
+        .eq("id", id);
+
+      if (deleteError) {
+        console.error(
+          "Supabase delete tip_calculation_results error:",
+          deleteError
+        );
+        throw new Error(`Failed to delete record: ${deleteError.message}`);
+      }
+
+      res.status(200).json({ success: true, message: "Record deleted" });
+    } catch (error) {
+      console.error("Error deleting calculation result:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// PATCH /api/tips/calculation-results/:id/archive
+app.patch(
+  "/api/tips/calculation-results/:id/archive",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res.status(400).json({ error: "id is required" });
+      }
+
+      // 1. ユーザーが権限を持つ店を取得
+      const { data: storeUsers, error: storeUsersError } = await supabase
+        .from("store_users")
+        .select("store_id")
+        .eq("user_id", req.user.id);
+
+      if (storeUsersError) {
+        console.error("Supabase select store_users error:", storeUsersError);
+        throw new Error(
+          `Failed to fetch user stores: ${storeUsersError.message}`
+        );
+      }
+
+      if (!storeUsers || storeUsers.length === 0) {
+        return res.status(403).json({ error: "No store access" });
+      }
+
+      const storeIds = storeUsers.map((su) => su.store_id);
+
+      // 2. レコードが存在し、ユーザーがアクセス権を持つか確認
+      const { data: record, error: fetchError } = await supabase
+        .from("tip_calculation_results")
+        .select("id, calculation_id")
+        .eq("id", id)
+        .single();
+
+      if (fetchError || !record) {
+        return res.status(404).json({ error: "Record not found" });
+      }
+
+      // 3. calculation_idからtip_calculationsを取得して権限チェック
+      const { data: calculation, error: calcError } = await supabase
+        .from("tip_calculations")
+        .select("stores_id")
+        .eq("id", record.calculation_id)
+        .single();
+
+      if (calcError || !calculation) {
+        return res.status(404).json({ error: "Calculation not found" });
+      }
+
+      if (!storeIds.includes(calculation.stores_id)) {
+        return res.status(403).json({
+          error: "You do not have permission to archive this record",
+        });
+      }
+
+      // 4. レコードをアーカイブ
+      const { error: updateError } = await supabase
+        .from("tip_calculation_results")
+        .update({
+          is_archived: true,
+          archived_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+
+      if (updateError) {
+        console.error(
+          "Supabase update tip_calculation_results error:",
+          updateError
+        );
+        throw new Error(`Failed to archive record: ${updateError.message}`);
+      }
+
+      res.status(200).json({ success: true, message: "Record archived" });
+    } catch (error) {
+      console.error("Error archiving calculation result:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// PATCH /api/tips/calculation-results/:id/unarchive
+app.patch(
+  "/api/tips/calculation-results/:id/unarchive",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res.status(400).json({ error: "id is required" });
+      }
+
+      // 1. ユーザーが権限を持つ店を取得
+      const { data: storeUsers, error: storeUsersError } = await supabase
+        .from("store_users")
+        .select("store_id")
+        .eq("user_id", req.user.id);
+
+      if (storeUsersError) {
+        console.error("Supabase select store_users error:", storeUsersError);
+        throw new Error(
+          `Failed to fetch user stores: ${storeUsersError.message}`
+        );
+      }
+
+      if (!storeUsers || storeUsers.length === 0) {
+        return res.status(403).json({ error: "No store access" });
+      }
+
+      const storeIds = storeUsers.map((su) => su.store_id);
+
+      // 2. レコードが存在し、ユーザーがアクセス権を持つか確認
+      const { data: record, error: fetchError } = await supabase
+        .from("tip_calculation_results")
+        .select("id, calculation_id")
+        .eq("id", id)
+        .single();
+
+      if (fetchError || !record) {
+        return res.status(404).json({ error: "Record not found" });
+      }
+
+      // 3. calculation_idからtip_calculationsを取得して権限チェック
+      const { data: calculation, error: calcError } = await supabase
+        .from("tip_calculations")
+        .select("stores_id")
+        .eq("id", record.calculation_id)
+        .single();
+
+      if (calcError || !calculation) {
+        return res.status(404).json({ error: "Calculation not found" });
+      }
+
+      if (!storeIds.includes(calculation.stores_id)) {
+        return res.status(403).json({
+          error: "You do not have permission to unarchive this record",
+        });
+      }
+
+      // 4. レコードをアーカイブ解除
+      const { error: updateError } = await supabase
+        .from("tip_calculation_results")
+        .update({
+          is_archived: false,
+          archived_at: null,
+        })
+        .eq("id", id);
+
+      if (updateError) {
+        console.error(
+          "Supabase update tip_calculation_results error:",
+          updateError
+        );
+        throw new Error(`Failed to unarchive record: ${updateError.message}`);
+      }
+
+      res.status(200).json({ success: true, message: "Record unarchived" });
+    } catch (error) {
+      console.error("Error unarchiving calculation result:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
 
 // GET /api/tips/calculation-status
 app.get("/api/tips/calculation-status", authMiddleware, async (req, res) => {
@@ -2416,6 +2669,79 @@ app.put(
       });
     } catch (error) {
       console.error("Error updating formatted working hours:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// DELETE /api/tips/formatted-working-hours/:id
+app.delete(
+  "/api/tips/formatted-working-hours/:id",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res.status(400).json({ error: "id is required" });
+      }
+
+      // 1. ユーザーが権限を持つ店を取得
+      const { data: storeUsers, error: storeUsersError } = await supabase
+        .from("store_users")
+        .select("store_id")
+        .eq("user_id", req.user.id);
+
+      if (storeUsersError) {
+        console.error("Supabase select store_users error:", storeUsersError);
+        throw new Error(
+          `Failed to fetch user stores: ${storeUsersError.message}`
+        );
+      }
+
+      if (!storeUsers || storeUsers.length === 0) {
+        return res.status(403).json({ error: "No store access" });
+      }
+
+      const storeIds = storeUsers.map((su) => su.store_id);
+
+      // 2. レコードが存在し、ユーザーがアクセス権を持つか確認
+      const { data: record, error: fetchError } = await supabase
+        .from("formatted_working_hours")
+        .select("id, stores_id")
+        .eq("id", id)
+        .single();
+
+      if (fetchError || !record) {
+        return res.status(404).json({ error: "Record not found" });
+      }
+
+      if (!storeIds.includes(record.stores_id)) {
+        return res.status(403).json({
+          error: "You do not have permission to delete this record",
+        });
+      }
+
+      // 3. レコードを削除
+      const { error: deleteError } = await supabase
+        .from("formatted_working_hours")
+        .delete()
+        .eq("id", id);
+
+      if (deleteError) {
+        console.error(
+          "Supabase delete formatted_working_hours error:",
+          deleteError
+        );
+        throw new Error(`Failed to delete record: ${deleteError.message}`);
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Record deleted successfully",
+      });
+    } catch (error) {
+      console.error("Error deleting formatted working hours record:", error);
       res.status(500).json({ error: error.message });
     }
   }
@@ -3557,6 +3883,7 @@ app.get("/api/user-settings", authMiddleware, async (req, res) => {
           {
             user_id: req.user.id,
             time_format: "24h",
+            show_archived_records: false,
           },
         ])
         .select()
@@ -3580,12 +3907,22 @@ app.get("/api/user-settings", authMiddleware, async (req, res) => {
 // PUT /api/user-settings - Update user settings
 app.put("/api/user-settings", authMiddleware, async (req, res) => {
   try {
-    const { time_format } = req.body;
+    const { time_format, show_archived_records } = req.body;
 
     // Validate time_format
     if (time_format && time_format !== "24h" && time_format !== "12h") {
       return res.status(400).json({
         error: "time_format must be '24h' or '12h'",
+      });
+    }
+
+    // Validate show_archived_records
+    if (
+      show_archived_records !== undefined &&
+      typeof show_archived_records !== "boolean"
+    ) {
+      return res.status(400).json({
+        error: "show_archived_records must be a boolean",
       });
     }
 
@@ -3598,12 +3935,22 @@ app.put("/api/user-settings", authMiddleware, async (req, res) => {
 
     if (existingSettings) {
       // Update existing settings
+      // Only update fields that are provided (not undefined)
+      const updateData = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (time_format !== undefined) {
+        updateData.time_format = time_format;
+      }
+
+      if (show_archived_records !== undefined) {
+        updateData.show_archived_records = show_archived_records;
+      }
+
       const { data: updatedSettings, error: updateError } = await supabase
         .from("user_settings")
-        .update({
-          time_format: time_format || "24h",
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq("user_id", req.user.id)
         .select()
         .single();
@@ -3622,6 +3969,10 @@ app.put("/api/user-settings", authMiddleware, async (req, res) => {
           {
             user_id: req.user.id,
             time_format: time_format || "24h",
+            show_archived_records:
+              show_archived_records !== undefined
+                ? show_archived_records
+                : false,
           },
         ])
         .select()
