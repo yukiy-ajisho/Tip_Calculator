@@ -3,8 +3,12 @@
 import { useState, useMemo, useEffect } from "react";
 import { api } from "@/lib/api";
 import { RecordItem } from "@/types";
+import { useUserSettings } from "@/hooks/useUserSettings";
 
 export default function RecordsPage() {
+  // ユーザー設定を取得
+  const { showArchivedRecords, timeFormat } = useUserSettings();
+
   // タブ切り替えの状態
   const [activeTab, setActiveTab] = useState<
     "tipResultCombine" | "storeBreakdown"
@@ -15,6 +19,27 @@ export default function RecordsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Editモードの状態（Tip Result Combine）
+  const [isEditingTipResultCombine, setIsEditingTipResultCombine] =
+    useState(false);
+  const [selectedRecords, setSelectedRecords] = useState<
+    Record<string, "delete" | "archive">
+  >({});
+  // 編集モードに入る際の既にアーカイブされているレコードのIDを記録（Tip Result Combine）
+  const [initialArchivedRecordIds, setInitialArchivedRecordIds] = useState<
+    Set<string>
+  >(new Set());
+
+  // Editモードの状態（Store Breakdown）
+  const [isEditingStoreBreakdown, setIsEditingStoreBreakdown] = useState(false);
+  const [selectedRecordsStoreBreakdown, setSelectedRecordsStoreBreakdown] =
+    useState<Record<string, "delete" | "archive">>({});
+  // 編集モードに入る際の既にアーカイブされているレコードのIDを記録（Store Breakdown）
+  const [
+    initialArchivedRecordIdsStoreBreakdown,
+    setInitialArchivedRecordIdsStoreBreakdown,
+  ] = useState<Set<string>>(new Set());
+
   // 日付をフォーマット（YYYY-MM-DD → MM/DD/YYYY）
   const formatDate = (dateString: string | null): string => {
     if (!dateString) return "";
@@ -22,6 +47,35 @@ export default function RecordsPage() {
     if (parts.length !== 3) return dateString;
     const [year, month, day] = parts;
     return `${month}/${day}/${year}`;
+  };
+
+  // アーカイブ日時をフォーマット（ISO 8601 → MM/DD/YYYY HH:MM AM/PM または MM/DD/YYYY HH:MM）
+  const formatArchivedAt = (archivedAt: string | null): string => {
+    if (!archivedAt) return "";
+    try {
+      const date = new Date(archivedAt);
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      const year = date.getFullYear();
+
+      let hours = date.getHours();
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+
+      if (timeFormat === "12h") {
+        const ampm = hours >= 12 ? "PM" : "AM";
+        hours = hours % 12 || 12;
+        return `${month}/${day}/${year} ${hours}:${minutes} ${ampm}`;
+      } else {
+        // 24h format
+        return `${month}/${day}/${year} ${String(hours).padStart(
+          2,
+          "0"
+        )}:${minutes}`;
+      }
+    } catch (error) {
+      console.error("Error formatting archived_at:", error);
+      return "";
+    }
   };
 
   // APIからデータを取得
@@ -47,24 +101,51 @@ export default function RecordsPage() {
     fetchData();
   }, []);
 
-  // データをRecordsの形式に変換（日付フォーマットを変換）
+  // タブ切り替え時に前のタブの編集モードをリセット
+  useEffect(() => {
+    if (activeTab === "tipResultCombine") {
+      // Tip Result Combineタブに切り替わったら、Store Breakdownの編集モードをリセット
+      setIsEditingStoreBreakdown(false);
+      setSelectedRecordsStoreBreakdown({});
+      setInitialArchivedRecordIdsStoreBreakdown(new Set());
+    } else if (activeTab === "storeBreakdown") {
+      // Store Breakdownタブに切り替わったら、Tip Result Combineの編集モードをリセット
+      setIsEditingTipResultCombine(false);
+      setSelectedRecords({});
+      setInitialArchivedRecordIds(new Set());
+    }
+  }, [activeTab]);
+
+  // データをRecordsの形式に変換（日付フォーマットを変換、showArchivedRecordsに基づいてフィルタリング）
   const Records = useMemo(
     () =>
-      records.map((record) => ({
-        periodStart: formatDate(record.periodStart),
-        store: record.store,
-        name: record.name,
-        tips: record.tips,
-        cashTips: record.cashTips,
-      })),
-    [records]
+      records
+        .filter((record) => (showArchivedRecords ? true : !record.isArchived))
+        .map((record) => ({
+          id: record.id,
+          periodStart: formatDate(record.periodStart),
+          store: record.store,
+          name: record.name,
+          tips: record.tips,
+          cashTips: record.cashTips,
+          isArchived: record.isArchived,
+          archivedAt: record.archivedAt,
+        })),
+    [records, showArchivedRecords]
   );
 
   // 日付ごとにグループ化（Storeは無視）
   const groupedByDate = useMemo(() => {
     const grouped: Record<
       string,
-      { name: string; tips: number; cashTips: number }[]
+      {
+        id: string;
+        name: string;
+        tips: number;
+        cashTips: number;
+        isArchived: boolean;
+        archivedAt: string | null;
+      }[]
     > = {};
 
     Records.forEach((record) => {
@@ -73,9 +154,12 @@ export default function RecordsPage() {
         grouped[date] = [];
       }
       grouped[date].push({
+        id: record.id,
         name: record.name,
         tips: record.tips,
         cashTips: record.cashTips,
+        isArchived: record.isArchived,
+        archivedAt: record.archivedAt,
       });
     });
 
@@ -241,6 +325,186 @@ export default function RecordsPage() {
     }
   };
 
+  // Editモードのハンドラー（Tip Result Combine）
+  const handleEditTipResultCombine = () => {
+    setIsEditingTipResultCombine(true);
+    // 既にアーカイブされているレコードをselectedRecordsに初期化
+    // Records（フィルタリング済み、表示されているレコードのみ）を使用
+    const initialSelectedRecords: Record<string, "delete" | "archive"> = {};
+    const archivedIds = new Set<string>();
+    Records.forEach((record) => {
+      if (record.isArchived) {
+        initialSelectedRecords[record.id] = "archive";
+        archivedIds.add(record.id);
+      }
+    });
+    setSelectedRecords(initialSelectedRecords);
+    setInitialArchivedRecordIds(archivedIds);
+  };
+
+  const handleCancelEditTipResultCombine = () => {
+    setIsEditingTipResultCombine(false);
+    setSelectedRecords({});
+    setInitialArchivedRecordIds(new Set());
+  };
+
+  const handleToggleRecordSelection = (
+    recordId: string,
+    action: "delete" | "archive"
+  ) => {
+    setSelectedRecords((prev) => {
+      const newSelection = { ...prev };
+      const currentAction = newSelection[recordId];
+
+      if (currentAction === action) {
+        // 同じアクションを再度クリックした場合は解除
+        delete newSelection[recordId];
+      } else {
+        // 新しいアクションを設定（排他的：既存のアクションを上書き）
+        newSelection[recordId] = action;
+      }
+      return newSelection;
+    });
+  };
+
+  const handleSaveTipResultCombine = async () => {
+    try {
+      const deleteIds: string[] = [];
+      const archiveIds: string[] = [];
+      const unarchiveIds: string[] = [];
+
+      Object.entries(selectedRecords).forEach(([id, action]) => {
+        if (action === "delete") {
+          deleteIds.push(id);
+        } else if (action === "archive") {
+          archiveIds.push(id);
+        }
+      });
+
+      // 既にアーカイブされているが、selectedRecordsに"archive"として含まれていない（チェックが外されている）レコードをアーカイブ解除
+      // ただし、削除対象のレコードは除外（削除するレコードをアーカイブ解除する必要はない）
+      initialArchivedRecordIds.forEach((id) => {
+        if (
+          selectedRecords[id] !== "archive" &&
+          selectedRecords[id] !== "delete"
+        ) {
+          unarchiveIds.push(id);
+        }
+      });
+
+      // 削除、アーカイブ、アーカイブ解除を並列実行
+      await Promise.all([
+        ...deleteIds.map((id) => api.tips.deleteCalculationResult(id)),
+        ...archiveIds.map((id) => api.tips.archiveCalculationResult(id)),
+        ...unarchiveIds.map((id) => api.tips.unarchiveCalculationResult(id)),
+      ]);
+
+      // データを再取得
+      const response = await api.tips.getRecords();
+      if (response.success) {
+        setRecords(response.data);
+      }
+
+      // Editモードを終了
+      setIsEditingTipResultCombine(false);
+      setSelectedRecords({});
+      setInitialArchivedRecordIds(new Set());
+    } catch (error) {
+      console.error("Error saving changes:", error);
+      alert("Failed to save changes. Please try again.");
+    }
+  };
+
+  // Editモードのハンドラー（Store Breakdown）
+  const handleEditStoreBreakdown = () => {
+    setIsEditingStoreBreakdown(true);
+    // 既にアーカイブされているレコードをselectedRecordsStoreBreakdownに初期化
+    // Records（フィルタリング済み、表示されているレコードのみ）を使用
+    const initialSelectedRecords: Record<string, "delete" | "archive"> = {};
+    const archivedIds = new Set<string>();
+    Records.forEach((record) => {
+      if (record.isArchived) {
+        initialSelectedRecords[record.id] = "archive";
+        archivedIds.add(record.id);
+      }
+    });
+    setSelectedRecordsStoreBreakdown(initialSelectedRecords);
+    setInitialArchivedRecordIdsStoreBreakdown(archivedIds);
+  };
+
+  const handleCancelEditStoreBreakdown = () => {
+    setIsEditingStoreBreakdown(false);
+    setSelectedRecordsStoreBreakdown({});
+    setInitialArchivedRecordIdsStoreBreakdown(new Set());
+  };
+
+  const handleToggleRecordSelectionStoreBreakdown = (
+    recordId: string,
+    action: "delete" | "archive"
+  ) => {
+    setSelectedRecordsStoreBreakdown((prev) => {
+      const newSelection = { ...prev };
+      const currentAction = newSelection[recordId];
+
+      if (currentAction === action) {
+        // 同じアクションを再度クリックした場合は解除
+        delete newSelection[recordId];
+      } else {
+        // 新しいアクションを設定（排他的：既存のアクションを上書き）
+        newSelection[recordId] = action;
+      }
+      return newSelection;
+    });
+  };
+
+  const handleSaveStoreBreakdown = async () => {
+    try {
+      const deleteIds: string[] = [];
+      const archiveIds: string[] = [];
+      const unarchiveIds: string[] = [];
+
+      Object.entries(selectedRecordsStoreBreakdown).forEach(([id, action]) => {
+        if (action === "delete") {
+          deleteIds.push(id);
+        } else if (action === "archive") {
+          archiveIds.push(id);
+        }
+      });
+
+      // 既にアーカイブされているが、selectedRecordsStoreBreakdownに"archive"として含まれていない（チェックが外されている）レコードをアーカイブ解除
+      // ただし、削除対象のレコードは除外（削除するレコードをアーカイブ解除する必要はない）
+      initialArchivedRecordIdsStoreBreakdown.forEach((id) => {
+        if (
+          selectedRecordsStoreBreakdown[id] !== "archive" &&
+          selectedRecordsStoreBreakdown[id] !== "delete"
+        ) {
+          unarchiveIds.push(id);
+        }
+      });
+
+      // 削除、アーカイブ、アーカイブ解除を並列実行
+      await Promise.all([
+        ...deleteIds.map((id) => api.tips.deleteCalculationResult(id)),
+        ...archiveIds.map((id) => api.tips.archiveCalculationResult(id)),
+        ...unarchiveIds.map((id) => api.tips.unarchiveCalculationResult(id)),
+      ]);
+
+      // データを再取得
+      const response = await api.tips.getRecords();
+      if (response.success) {
+        setRecords(response.data);
+      }
+
+      // Editモードを終了
+      setIsEditingStoreBreakdown(false);
+      setSelectedRecordsStoreBreakdown({});
+      setInitialArchivedRecordIdsStoreBreakdown(new Set());
+    } catch (error) {
+      console.error("Error saving changes:", error);
+      alert("Failed to save changes. Please try again.");
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="p-8">
@@ -251,41 +515,85 @@ export default function RecordsPage() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="p-8">
-        <div className="max-w-7xl mx-auto">
-          <p className="text-sm text-red-600">Error: {error}</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="p-8">
       <div className="max-w-7xl mx-auto">
-        {/* タブボタン */}
-        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6 w-fit">
-          <button
-            onClick={() => setActiveTab("tipResultCombine")}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
-              activeTab === "tipResultCombine"
-                ? "bg-white text-blue-700 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            Tip Result Combine
-          </button>
-          <button
-            onClick={() => setActiveTab("storeBreakdown")}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
-              activeTab === "storeBreakdown"
-                ? "bg-white text-blue-700 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            Store Breakdown
-          </button>
+        {/* タブボタンとEditボタン */}
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
+            <button
+              onClick={() => setActiveTab("tipResultCombine")}
+              className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                activeTab === "tipResultCombine"
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              Tip Result Combine
+            </button>
+            <button
+              onClick={() => setActiveTab("storeBreakdown")}
+              className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                activeTab === "storeBreakdown"
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              Store Breakdown
+            </button>
+          </div>
+          {/* Editボタン（Tip Result CombineまたはStore Breakdown） */}
+          <div className="flex gap-3">
+            {activeTab === "tipResultCombine" ? (
+              !isEditingTipResultCombine ? (
+                <button
+                  onClick={handleEditTipResultCombine}
+                  className="px-4 py-2 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                >
+                  Edit
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleCancelEditTipResultCombine}
+                    className="px-4 py-2 text-sm rounded-lg bg-gray-500 text-white hover:bg-gray-600 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveTipResultCombine}
+                    className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors"
+                  >
+                    Save
+                  </button>
+                </>
+              )
+            ) : activeTab === "storeBreakdown" ? (
+              !isEditingStoreBreakdown ? (
+                <button
+                  onClick={handleEditStoreBreakdown}
+                  className="px-4 py-2 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                >
+                  Edit
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleCancelEditStoreBreakdown}
+                    className="px-4 py-2 text-sm rounded-lg bg-gray-500 text-white hover:bg-gray-600 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveStoreBreakdown}
+                    className="px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors"
+                  >
+                    Save
+                  </button>
+                </>
+              )
+            ) : null}
+          </div>
         </div>
 
         {/* Tip Result Combine タブのコンテンツ */}
@@ -322,67 +630,144 @@ export default function RecordsPage() {
             </div>
             {/* データ表示カード */}
             <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-              <div className="space-y-6">
-                {Object.keys(groupedByDate)
-                  .sort()
-                  .map((date) => {
-                    const records = groupedByDate[date];
-                    const total = getDateTotal(date);
+              {Object.keys(groupedByDate).length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-sm text-gray-500">No records found</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {Object.keys(groupedByDate)
+                    .sort()
+                    .map((date) => {
+                      const records = groupedByDate[date];
+                      const total = getDateTotal(date);
 
-                    return (
-                      <div
-                        key={date}
-                        className="border-b border-gray-200 pb-6 last:border-b-0 last:pb-0"
-                      >
-                        <div className="flex gap-6 mb-4">
-                          {/* 左側: 日付と合計 */}
-                          <div className="flex items-center gap-4 min-w-[200px]">
-                            <span className="text-lg font-semibold text-gray-800">
-                              {date}
-                            </span>
-                            <span className="text-lg font-semibold text-gray-800">
-                              ${total.toFixed(2)}
-                            </span>
+                      return (
+                        <div
+                          key={date}
+                          className="border-b border-gray-200 pb-6 last:border-b-0 last:pb-0"
+                        >
+                          <div className="flex gap-6 mb-4">
+                            {/* 左側: 日付と合計 */}
+                            <div className="flex items-center gap-4 min-w-[200px]">
+                              <span className="text-lg font-semibold text-gray-800">
+                                {date}
+                              </span>
+                              <span className="text-lg font-semibold text-gray-800">
+                                ${total.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* 右側: テーブル */}
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Name
+                                  </th>
+                                  {/* 編集時はDelete/Archive列を表示 */}
+                                  {isEditingTipResultCombine && (
+                                    <>
+                                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Delete
+                                      </th>
+                                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Archive
+                                      </th>
+                                    </>
+                                  )}
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Tip
+                                  </th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Cash Tip
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white divide-y divide-gray-200">
+                                {records.map((record, index) => (
+                                  <tr key={record.id || index}>
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                      <div className="flex items-center gap-2">
+                                        <span>{record.name}</span>
+                                        {/* 非編集時のみarchivedAtバッジを表示 */}
+                                        {!isEditingTipResultCombine &&
+                                          record.isArchived &&
+                                          record.archivedAt && (
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                              {formatArchivedAt(
+                                                record.archivedAt
+                                              )}
+                                            </span>
+                                          )}
+                                      </div>
+                                    </td>
+                                    {/* 編集時はDelete/Archiveチェックボックスを表示 */}
+                                    {isEditingTipResultCombine && (
+                                      <>
+                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                          <input
+                                            type="checkbox"
+                                            checked={
+                                              selectedRecords[record.id] ===
+                                              "delete"
+                                            }
+                                            onChange={() =>
+                                              handleToggleRecordSelection(
+                                                record.id,
+                                                "delete"
+                                              )
+                                            }
+                                            className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                                          />
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                          <div className="flex items-center gap-2">
+                                            <input
+                                              type="checkbox"
+                                              checked={
+                                                selectedRecords[record.id] ===
+                                                "archive"
+                                              }
+                                              onChange={() =>
+                                                handleToggleRecordSelection(
+                                                  record.id,
+                                                  "archive"
+                                                )
+                                              }
+                                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                            />
+                                            {/* 編集時はArchiveチェックボックスの右側にarchivedAtバッジを表示 */}
+                                            {record.isArchived &&
+                                              record.archivedAt && (
+                                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                                  {formatArchivedAt(
+                                                    record.archivedAt
+                                                  )}
+                                                </span>
+                                              )}
+                                          </div>
+                                        </td>
+                                      </>
+                                    )}
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                      {record.tips.toFixed(2)}
+                                    </td>
+                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                      {record.cashTips.toFixed(2)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
                           </div>
                         </div>
-
-                        {/* 右側: テーブル */}
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                              <tr>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Name
-                                </th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Tip
-                                </th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Cash Tip
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                              {records.map((record, index) => (
-                                <tr key={index}>
-                                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                                    {record.name}
-                                  </td>
-                                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                                    {record.tips.toFixed(2)}
-                                  </td>
-                                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                                    {record.cashTips.toFixed(2)}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -486,6 +871,17 @@ export default function RecordsPage() {
                             </span>
                           </button>
                         </th>
+                        {/* 編集時はDelete/Archive列を表示 */}
+                        {isEditingStoreBreakdown && (
+                          <>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Delete
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Archive
+                            </th>
+                          </>
+                        )}
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Period Start
                         </th>
@@ -516,7 +912,7 @@ export default function RecordsPage() {
                       {getFilteredAndGroupedRecords.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={5}
+                            colSpan={isEditingStoreBreakdown ? 7 : 5}
                             className="px-6 py-4 text-center text-sm text-gray-500"
                           >
                             No records found
@@ -540,8 +936,67 @@ export default function RecordsPage() {
                               }
                             >
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {record.name}
+                                <div className="flex items-center gap-2">
+                                  <span>{record.name}</span>
+                                  {!isEditingStoreBreakdown &&
+                                    record.isArchived &&
+                                    record.archivedAt && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                        {formatArchivedAt(record.archivedAt)}
+                                      </span>
+                                    )}
+                                </div>
                               </td>
+                              {/* 編集時はDelete/Archiveチェックボックスを表示 */}
+                              {isEditingStoreBreakdown && (
+                                <>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                    <input
+                                      type="checkbox"
+                                      checked={
+                                        selectedRecordsStoreBreakdown[
+                                          record.id
+                                        ] === "delete"
+                                      }
+                                      onChange={() =>
+                                        handleToggleRecordSelectionStoreBreakdown(
+                                          record.id,
+                                          "delete"
+                                        )
+                                      }
+                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                    />
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={
+                                          selectedRecordsStoreBreakdown[
+                                            record.id
+                                          ] === "archive"
+                                        }
+                                        onChange={() =>
+                                          handleToggleRecordSelectionStoreBreakdown(
+                                            record.id,
+                                            "archive"
+                                          )
+                                        }
+                                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                      />
+                                      {isEditingStoreBreakdown &&
+                                        record.isArchived &&
+                                        record.archivedAt && (
+                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                            {formatArchivedAt(
+                                              record.archivedAt
+                                            )}
+                                          </span>
+                                        )}
+                                    </div>
+                                  </td>
+                                </>
+                              )}
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                 {record.periodStart}
                               </td>

@@ -141,6 +141,8 @@ export interface RecordItem {
   name: string;
   tips: number;
   cashTips: number;
+  isArchived: boolean;
+  archivedAt: string | null; // ISO 8601形式のタイムスタンプ
 }
 
 export interface GetRecordsResponse {
@@ -158,6 +160,7 @@ export interface UserSettings {
   id: string;
   user_id: string;
   time_format: "24h" | "12h";
+  show_archived_records: boolean;
   created_at?: string;
   updated_at?: string;
 }

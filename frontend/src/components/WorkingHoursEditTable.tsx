@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { FormattedWorkingHours } from "@/types";
-import { X } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 import { TimeInput } from "./TimeInput";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { convert24To12 } from "@/lib/time-format";
@@ -26,6 +26,7 @@ interface WorkingHoursEditTableProps {
   onDataChange?: (data: FormattedWorkingHours[]) => void;
   onCancel?: () => void;
   onIncompleteCountChange?: (count: number) => void;
+  onDeleteRecord?: (id: string) => void;
 }
 
 type DateSegmentType = "month" | "day" | "year" | "space";
@@ -506,6 +507,7 @@ export function WorkingHoursEditTable({
   onDataChange,
   onCancel,
   onIncompleteCountChange,
+  onDeleteRecord,
 }: WorkingHoursEditTableProps) {
   const { timeFormat } = useUserSettings();
 
@@ -540,7 +542,12 @@ export function WorkingHoursEditTable({
 
     dataToUse.forEach((record, index) => {
       // 編集モード中は、最新のdataから値を取得（入力値の反映）
-      const latestRecord = data?.find((r) => r.id === record.id) || record;
+      // 削除されたレコードはdataに存在しないので、スキップする
+      const latestRecord = data?.find((r) => r.id === record.id);
+      if (!latestRecord) {
+        // 削除されたレコードはスキップ
+        return;
+      }
 
       const displayRecord: WorkingHoursRecord = {
         id: latestRecord.id,
@@ -846,7 +853,7 @@ export function WorkingHoursEditTable({
             </span>
           )}
         </td>
-        <td className="px-3 py-2 whitespace-nowrap text-xs">
+        <td className="px-3 py-2 whitespace-nowrap text-xs border-r border-gray-200">
           {isEditing && (!hasData("role") || shouldShowOrange) ? (
             <input
               type="text"
@@ -870,6 +877,17 @@ export function WorkingHoursEditTable({
             </span>
           )}
         </td>
+        {isEditing && onDeleteRecord && (
+          <td className="px-3 py-2 whitespace-nowrap text-xs">
+            <button
+              onClick={() => onDeleteRecord(record.id)}
+              className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+              title="Delete record"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </td>
+        )}
       </tr>
     );
   };
@@ -897,16 +915,21 @@ export function WorkingHoursEditTable({
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                   End
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                   Role
                 </th>
+                {isEditing && (
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {displayCompleteRecords.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={isEditing ? 6 : 5}
                     className="px-3 py-2 text-center text-xs text-gray-500"
                   >
                     No complete records
@@ -943,16 +966,21 @@ export function WorkingHoursEditTable({
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                   End
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                   Role
                 </th>
+                {isEditing && (
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {displayIncompleteRecords.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={isEditing ? 6 : 5}
                     className="px-3 py-2 text-center text-xs text-gray-500"
                   >
                     No incomplete records

@@ -223,6 +223,16 @@ export const api = {
         }
       );
     },
+    deleteFormattedWorkingHours: (
+      id: string
+    ): Promise<{ success: boolean; message?: string }> => {
+      return apiRequest<{ success: boolean; message?: string }>(
+        `/api/tips/formatted-working-hours/${id}`,
+        {
+          method: "DELETE",
+        }
+      );
+    },
     formatTipData: (
       storesId: string,
       csvData: string[]
@@ -338,15 +348,61 @@ export const api = {
     getRecords: (): Promise<GetRecordsResponse> => {
       return apiRequest<GetRecordsResponse>("/api/tips/records");
     },
+    deleteCalculationResult: (
+      id: string
+    ): Promise<{ success: boolean; message?: string }> => {
+      return apiRequest<{ success: boolean; message?: string }>(
+        `/api/tips/calculation-results/${id}`,
+        {
+          method: "DELETE",
+        }
+      );
+    },
+    archiveCalculationResult: (
+      id: string
+    ): Promise<{ success: boolean; message?: string }> => {
+      return apiRequest<{ success: boolean; message?: string }>(
+        `/api/tips/calculation-results/${id}/archive`,
+        {
+          method: "PATCH",
+        }
+      );
+    },
+    unarchiveCalculationResult: (
+      id: string
+    ): Promise<{ success: boolean; message?: string }> => {
+      return apiRequest<{ success: boolean; message?: string }>(
+        `/api/tips/calculation-results/${id}/unarchive`,
+        {
+          method: "PATCH",
+        }
+      );
+    },
   },
   userSettings: {
     getUserSettings: (): Promise<UserSettings> => {
       return apiRequest<UserSettings>("/api/user-settings");
     },
-    updateUserSettings: (timeFormat: "24h" | "12h"): Promise<UserSettings> => {
+    updateUserSettings: (settings: {
+      timeFormat?: "24h" | "12h";
+      showArchivedRecords?: boolean;
+    }): Promise<UserSettings> => {
+      const body: {
+        time_format?: "24h" | "12h";
+        show_archived_records?: boolean;
+      } = {};
+
+      if (settings.timeFormat !== undefined) {
+        body.time_format = settings.timeFormat;
+      }
+
+      if (settings.showArchivedRecords !== undefined) {
+        body.show_archived_records = settings.showArchivedRecords;
+      }
+
       return apiRequest<UserSettings>("/api/user-settings", {
         method: "PUT",
-        body: JSON.stringify({ time_format: timeFormat }),
+        body: JSON.stringify(body),
       });
     },
   },

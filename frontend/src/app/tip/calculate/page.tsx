@@ -20,6 +20,10 @@ export default function CalculatePage() {
 
   // calculationIdがない場合、importページにリダイレクト
   useEffect(() => {
+    // sessionStorageフラグをクリア（handleEditExistingなどで設定されたフラグをクリア）
+    const SESSION_FLAG_KEY = "directNavigationFromEdit";
+    sessionStorage.removeItem(SESSION_FLAG_KEY);
+
     if (!calculationId) {
       router.push("/tip/import");
       return;
@@ -35,6 +39,15 @@ export default function CalculatePage() {
         if (response.success && response.data) {
           setCalculation(response.data.calculation);
           setResults(response.data.results);
+
+          // データ取得成功後、localStorageに保存
+          const STORAGE_KEY = "lastTipSession";
+          const lastSession = {
+            storeId: response.data.calculation.stores_id,
+            lastPage: "calculate" as const,
+            calculationId: calculationId,
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(lastSession));
         } else {
           setError("Failed to load calculation results");
         }
@@ -91,6 +104,10 @@ export default function CalculatePage() {
       setIsSaving(true);
 
       await api.tips.deleteFormattedData(calculationId);
+
+      // localStorageをクリア（フロー完了）
+      const STORAGE_KEY = "lastTipSession";
+      localStorage.removeItem(STORAGE_KEY);
 
       setIsSuccessModalOpen(true);
     } catch (error) {
