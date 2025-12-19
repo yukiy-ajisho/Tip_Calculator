@@ -5,6 +5,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import { AddRoleModal } from "@/components/AddRoleModal";
 import { AddExistingRoleModal } from "@/components/AddExistingRoleModal";
 import { InviteCodeModal } from "@/components/InviteCodeModal";
+import { AddStoreModal } from "@/components/AddStoreModal";
 import { TimeInput } from "@/components/TimeInput";
 import { api } from "@/lib/api";
 import { Store, RoleMapping, RolePercentage, UserSettings } from "@/types";
@@ -72,6 +73,17 @@ export default function SettingsPage() {
   const [inviteCodeExpiresAt, setInviteCodeExpiresAt] = useState("");
   const [selectedStoreForInvite, setSelectedStoreForInvite] =
     useState<Store | null>(null);
+
+  // Add Store Modal state
+  const [isAddStoreModalOpen, setIsAddStoreModalOpen] = useState(false);
+  const [storeName, setStoreName] = useState("");
+  const [storeAbbreviation, setStoreAbbreviation] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [isAddingStore, setIsAddingStore] = useState(false);
+  const [isJoiningStore, setIsJoiningStore] = useState(false);
+  const [addStoreModalError, setAddStoreModalError] = useState<string | null>(
+    null
+  );
 
   // String input state for numeric fields (food_costing pattern)
   const [traineePercentageInputs, setTraineePercentageInputs] = useState<
@@ -564,6 +576,58 @@ export default function SettingsPage() {
     } catch (error: any) {
       console.error("Failed to generate invite code:", error);
       setStoreError(error.message || "Failed to generate invite code.");
+    }
+  };
+
+  const handleAddStore = async () => {
+    if (!storeName.trim() || !storeAbbreviation.trim()) {
+      setAddStoreModalError("Store name and abbreviation are required.");
+      return;
+    }
+
+    setIsAddingStore(true);
+    setAddStoreModalError(null);
+    try {
+      await api.stores.addStore(storeName.trim(), storeAbbreviation.trim());
+      // 成功時にストアリストを再取得
+      await fetchStores();
+      // モーダルを閉じて状態をリセット
+      setIsAddStoreModalOpen(false);
+      setStoreName("");
+      setStoreAbbreviation("");
+      setInviteCode("");
+      setAddStoreModalError(null);
+    } catch (error: any) {
+      console.error("Failed to add store:", error);
+      setAddStoreModalError(error.message || "Failed to add store.");
+    } finally {
+      setIsAddingStore(false);
+    }
+  };
+
+  const handleJoinStore = async () => {
+    if (!inviteCode.trim()) {
+      setAddStoreModalError("Invite code is required.");
+      return;
+    }
+
+    setIsJoiningStore(true);
+    setAddStoreModalError(null);
+    try {
+      await api.stores.joinStore(inviteCode.trim());
+      // 成功時にストアリストを再取得
+      await fetchStores();
+      // モーダルを閉じて状態をリセット
+      setIsAddStoreModalOpen(false);
+      setStoreName("");
+      setStoreAbbreviation("");
+      setInviteCode("");
+      setAddStoreModalError(null);
+    } catch (error: any) {
+      console.error("Failed to join store:", error);
+      setAddStoreModalError(error.message || "Failed to join store.");
+    } finally {
+      setIsJoiningStore(false);
     }
   };
 
@@ -1693,9 +1757,13 @@ export default function SettingsPage() {
             </div>
 
             <button
-              onClick={() =>
-                alert("Add Store functionality not implemented yet")
-              }
+              onClick={() => {
+                setAddStoreModalError(null);
+                setStoreName("");
+                setStoreAbbreviation("");
+                setInviteCode("");
+                setIsAddStoreModalOpen(true);
+              }}
               className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
             >
               Add Store
@@ -1856,6 +1924,29 @@ export default function SettingsPage() {
           onClose={() => setIsInviteCodeModalOpen(false)}
           code={generatedInviteCode}
           expiresAt={inviteCodeExpiresAt}
+        />
+
+        {/* Add Store Modal */}
+        <AddStoreModal
+          isOpen={isAddStoreModalOpen}
+          onClose={() => {
+            setIsAddStoreModalOpen(false);
+            setAddStoreModalError(null);
+            setStoreName("");
+            setStoreAbbreviation("");
+            setInviteCode("");
+          }}
+          storeName={storeName}
+          storeAbbreviation={storeAbbreviation}
+          onStoreNameChange={setStoreName}
+          onStoreAbbreviationChange={setStoreAbbreviation}
+          inviteCode={inviteCode}
+          onInviteCodeChange={setInviteCode}
+          onSave={handleAddStore}
+          onJoin={handleJoinStore}
+          isAddingStore={isAddingStore}
+          isJoiningStore={isJoiningStore}
+          storeError={addStoreModalError}
         />
       </div>
     </div>

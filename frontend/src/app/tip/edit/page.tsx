@@ -48,6 +48,10 @@ export default function EditPage() {
 
   // ページ読み込み時にSupabaseからデータ取得
   useEffect(() => {
+    // sessionStorageフラグをクリア（handleEditExistingなどで設定されたフラグをクリア）
+    const SESSION_FLAG_KEY = "directNavigationFromEdit";
+    sessionStorage.removeItem(SESSION_FLAG_KEY);
+
     const fetchData = async () => {
       // URLパラメータにstoreIdがない場合、importページにリダイレクト
       if (!storeId) {

@@ -913,14 +913,15 @@ function formatWorkingHoursData(csvData) {
   for (let i = 0; i < formattedData.length; i++) {
     const record = formattedData[i];
 
-    // 完全なレコードの判定: name, date, start, end が全て存在
+    // 完全なレコードの判定: name, date, start, end, role が全て存在
     const hasName = record.name && record.name.trim() !== "";
     const hasDate = !!record.date;
     const hasStart = !!record.start;
     const hasEnd = !!record.end;
+    const hasRole = record.role && record.role.trim() !== "";
 
     // !! で明示的にbooleanに変換
-    const isComplete = !!(hasName && hasDate && hasStart && hasEnd);
+    const isComplete = !!(hasName && hasDate && hasStart && hasEnd && hasRole);
 
     formattedData[i].is_complete_on_import = isComplete;
   }

@@ -34,12 +34,9 @@ const supabaseAdmin = createClient(
 const rootDir = path.join(__dirname, "..", "..");
 const workingHoursCsvPath = path.join(
   rootDir,
-  "frontend/public/correct/Tip Calculator Files - Timesheets_Table (1).csv"
+  "frontend/public/test_data/Working_Hours.csv"
 );
-const tipsCsvPath = path.join(
-  rootDir,
-  "frontend/public/correct/Tip Calculator Files - Payments_Table (1) - Tip Calculator Files - Payments_Table (1).csv (1).csv"
-);
+const tipsCsvPath = path.join(rootDir, "frontend/public/test_data/Tip.csv");
 
 // Helpers
 function readCsvLines(p) {
@@ -69,6 +66,8 @@ async function createStoreFixtures() {
     .insert({
       name: storeName,
       abbreviation: "TST",
+      off_hours_adjustment_before_hours: 690, // 11:30 in minutes
+      off_hours_adjustment_after_hours: 1290, // 21:30 in minutes
     })
     .select()
     .single();
@@ -87,7 +86,7 @@ async function createStoreFixtures() {
         store_id: store.id,
         role_name: "FRONT",
         actual_role_name: "FOH",
-        trainee_role_name: "F_TRAINEE",
+        trainee_role_name: "Front Trainee",
         trainee_percentage: 50,
       },
       {
@@ -281,6 +280,31 @@ describeIfEnv("Tip calculation integration (backend)", () => {
     expect(ftRes.status).toBe(200);
     expect(ftRes.body.success).toBe(true);
 
+    // Format cash tip data (hardcoded test data)
+    const cashTipData = [
+      { Date: "11/29/25", "Cash Tips": "200" },
+      { Date: "11/30/25", "Cash Tips": "400" },
+      { Date: "12/2/25", "Cash Tips": "200" },
+      { Date: "12/3/25", "Cash Tips": "400" },
+      { Date: "12/4/25", "Cash Tips": "200" },
+      { Date: "12/5/25", "Cash Tips": "400" },
+      { Date: "12/6/25", "Cash Tips": "200" },
+      { Date: "12/7/25", "Cash Tips": "400" },
+      { Date: "12/9/25", "Cash Tips": "200" },
+      { Date: "12/10/25", "Cash Tips": "400" },
+      { Date: "12/11/25", "Cash Tips": "200" },
+      { Date: "12/12/25", "Cash Tips": "400" },
+      { Date: "12/13/25", "Cash Tips": "200" },
+      { Date: "12/14/25", "Cash Tips": "400" },
+    ];
+
+    const fcRes = await apiFetch("/api/tips/format-cash-tip", {
+      method: "POST",
+      body: JSON.stringify({ stores_id: storeId, data: cashTipData }),
+    });
+    expect(fcRes.status).toBe(200);
+    expect(fcRes.body.success).toBe(true);
+
     const calcRes = await apiFetch("/api/tips/calculate", {
       method: "POST",
       body: JSON.stringify({ storeId }),
@@ -299,12 +323,20 @@ describeIfEnv("Tip calculation integration (backend)", () => {
     expect(resultRes.body.data.results.length).toBeGreaterThan(0);
 
     const expected = [
-      { name: "Branden Phillip Loi Panday", tips: 724.54, cash_tips: 0 },
-      { name: "Derek Zheng", tips: 807.13, cash_tips: 0 },
-      { name: "Kyra (Zin Hnin Htike)", tips: 41.99, cash_tips: 0 },
-      { name: "Norberto Canul Interian", tips: 546.79, cash_tips: 0 },
-      { name: "Thomas (Zaw Lynn Htet)", tips: 675.1, cash_tips: 0 },
-      { name: "Zac (Aung Kaung Myat)", tips: 256.15, cash_tips: 0 },
+      { name: "Dustin Timber", tips: 40.94, cash_tips: 34.88 },
+      { name: "Eric Carper", tips: 48.35, cash_tips: 61.55 },
+      { name: "Joe wong", tips: 427.89, cash_tips: 450.05 },
+      { name: "Jose Torres", tips: 8.31, cash_tips: 97.99 },
+      { name: "Masayuki Tadokoro", tips: 211.66, cash_tips: 657.18 },
+      { name: "Midori Ogawa", tips: 659.95, cash_tips: 506.71 },
+      { name: "Momoka Harris", tips: 490.93, cash_tips: 253.85 },
+      { name: "Noriaki Kojima", tips: 426.28, cash_tips: 373.93 },
+      { name: "Ruben Mendoza", tips: 55.96, cash_tips: 246.98 },
+      { name: "Satomi Harris", tips: 73.74, cash_tips: 26.53 },
+      { name: "Suguru Ishikawa", tips: 211.66, cash_tips: 657.18 },
+      { name: "Taichi Ogawa", tips: 211.66, cash_tips: 651.38 },
+      { name: "Trevontae Alcutt", tips: 139.52, cash_tips: 146.33 },
+      { name: "Yuki Yamada", tips: 40.94, cash_tips: 34.88 },
     ];
 
     // sort results by name for stable comparison

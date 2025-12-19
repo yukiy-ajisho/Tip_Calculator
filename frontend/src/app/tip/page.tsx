@@ -53,14 +53,24 @@ export default function TipPage() {
               lastSession.storeId
             );
 
-            if (
-              response.success &&
-              response.status === "processing" &&
-              response.calculationId
-            ) {
-              // status === "processing"の場合、/tip/editにリダイレクト
-              router.push(`/tip/edit?storeId=${lastSession.storeId}`);
-              return;
+            if (response.success) {
+              if (
+                response.status === "processing" &&
+                response.calculationId
+              ) {
+                // status === "processing"の場合、/tip/editにリダイレクト
+                router.push(`/tip/edit?storeId=${lastSession.storeId}`);
+                return;
+              } else if (
+                response.status === "completed" &&
+                response.calculationId
+              ) {
+                // status === "completed"の場合、/tip/calculateにリダイレクト
+                router.push(
+                  `/tip/calculate?calculationId=${response.calculationId}`
+                );
+                return;
+              }
             }
           } catch (error) {
             console.error("Failed to check calculation status:", error);

@@ -20,6 +20,10 @@ export default function CalculatePage() {
 
   // calculationIdがない場合、importページにリダイレクト
   useEffect(() => {
+    // sessionStorageフラグをクリア（handleEditExistingなどで設定されたフラグをクリア）
+    const SESSION_FLAG_KEY = "directNavigationFromEdit";
+    sessionStorage.removeItem(SESSION_FLAG_KEY);
+
     if (!calculationId) {
       router.push("/tip/import");
       return;

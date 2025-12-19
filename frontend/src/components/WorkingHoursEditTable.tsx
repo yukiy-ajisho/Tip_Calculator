@@ -877,8 +877,8 @@ export function WorkingHoursEditTable({
             </span>
           )}
         </td>
-        <td className="px-3 py-2 whitespace-nowrap text-xs">
-          {isEditing && onDeleteRecord && (
+        {isEditing && onDeleteRecord && (
+          <td className="px-3 py-2 whitespace-nowrap text-xs">
             <button
               onClick={() => onDeleteRecord(record.id)}
               className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
@@ -886,8 +886,8 @@ export function WorkingHoursEditTable({
             >
               <Trash2 className="w-4 h-4" />
             </button>
-          )}
-        </td>
+          </td>
+        )}
       </tr>
     );
   };
