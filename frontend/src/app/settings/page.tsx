@@ -894,7 +894,7 @@ export default function SettingsPage() {
         await api.stores.updateStoreSettings(storeId, {
           off_hours_adjustment_before_hours: settings.beforeHours,
           off_hours_adjustment_after_hours: settings.afterHours,
-          start_time_adjustment_minutes: settings.startTimeAdjustment,
+          start_time_adjustment_minutes: null, // Not used in v5
         });
       }
 
@@ -1502,9 +1502,6 @@ export default function SettingsPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                       After Hours Adjustment
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
-                      Start Time Adjustment (minutes)
-                    </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -1514,7 +1511,7 @@ export default function SettingsPage() {
                   {isLoadingStores ? (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={6}
                         className="px-4 py-3 text-center text-gray-500"
                       >
                         Loading stores...
@@ -1523,7 +1520,7 @@ export default function SettingsPage() {
                   ) : stores.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={6}
                         className="px-4 py-3 text-center text-gray-500"
                       >
                         No stores found. Add one!
@@ -1540,10 +1537,6 @@ export default function SettingsPage() {
                       const afterMinutes =
                         editedSettings?.afterHours ??
                         store.off_hours_adjustment_after_hours ??
-                        null;
-                      const startTimeAdjustmentMinutes =
-                        editedSettings?.startTimeAdjustment ??
-                        store.start_time_adjustment_minutes ??
                         null;
 
                       return (
@@ -1698,42 +1691,6 @@ export default function SettingsPage() {
                                       minutesToTimeString(afterMinutes)
                                     )
                                   : minutesToTimeString(afterMinutes)}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
-                            {isStoreSettingsEditMode ? (
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={
-                                  inputState?.startTimeAdjustment !== undefined
-                                    ? inputState.startTimeAdjustment
-                                    : startTimeAdjustmentMinutes === null
-                                    ? ""
-                                    : String(startTimeAdjustmentMinutes)
-                                }
-                                onChange={(e) =>
-                                  handleStoreSettingsFieldChange(
-                                    store.id,
-                                    "startTimeAdjustment",
-                                    e.target.value
-                                  )
-                                }
-                                onBlur={() =>
-                                  handleStoreSettingsFieldBlur(
-                                    store.id,
-                                    "startTimeAdjustment"
-                                  )
-                                }
-                                className="w-24 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                placeholder="minutes"
-                              />
-                            ) : (
-                              <span className="text-gray-900">
-                                {startTimeAdjustmentMinutes === null
-                                  ? "-"
-                                  : String(startTimeAdjustmentMinutes)}
                               </span>
                             )}
                           </td>

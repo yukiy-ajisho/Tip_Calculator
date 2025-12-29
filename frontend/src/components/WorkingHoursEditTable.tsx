@@ -511,60 +511,43 @@ export function WorkingHoursEditTable({
 }: WorkingHoursEditTableProps) {
   const { timeFormat } = useUserSettings();
 
-  // 編集開始時のデータを保持（編集モード中はこの順序を維持）
-  const editingStartDataRef = useRef<FormattedWorkingHours[] | null>(null);
-
-  // 編集モードの切り替えを追跡
-  useEffect(() => {
-    if (isEditing && !editingStartDataRef.current) {
-      // 編集モード開始時：現在のデータを保持
-      editingStartDataRef.current = data ? [...data] : null;
-    } else if (!isEditing) {
-      // 編集モード終了時：保持したデータをクリア
-      editingStartDataRef.current = null;
-    }
-  }, [isEditing, data]);
+  // レコードが完全かどうかを判定する関数
+  const isRecordComplete = (record: WorkingHoursRecord): boolean => {
+    return !!(
+      record.name &&
+      record.date &&
+      record.start &&
+      record.end &&
+      record.role
+    );
+  };
 
   // データを変換して、完全/不完全に分ける
   const { completeRecords, incompleteRecords } = useMemo(() => {
-    // 編集モード中は、編集開始時のデータを使用（順序を維持）
-    const dataToUse =
-      isEditing && editingStartDataRef.current
-        ? editingStartDataRef.current
-        : data;
-
-    if (!dataToUse || dataToUse.length === 0) {
+    if (!data || data.length === 0) {
       return { completeRecords: [], incompleteRecords: [] };
     }
 
     const complete: WorkingHoursRecord[] = [];
     const incomplete: WorkingHoursRecord[] = [];
 
-    dataToUse.forEach((record, index) => {
-      // 編集モード中は、最新のdataから値を取得（入力値の反映）
-      // 削除されたレコードはdataに存在しないので、スキップする
-      const latestRecord = data?.find((r) => r.id === record.id);
-      if (!latestRecord) {
-        // 削除されたレコードはスキップ
-        return;
-      }
-
+    data.forEach((record, index) => {
       const displayRecord: WorkingHoursRecord = {
-        id: latestRecord.id,
-        name: latestRecord.name,
-        date: latestRecord.date || null,
-        start: latestRecord.start || null,
-        end: latestRecord.end || null,
-        role: latestRecord.role || null,
-        is_complete_on_import: latestRecord.is_complete_on_import,
+        id: record.id,
+        name: record.name,
+        date: record.date || null,
+        start: record.start || null,
+        end: record.end || null,
+        role: record.role || null,
+        is_complete_on_import: record.is_complete_on_import,
         is_complete:
-          latestRecord.is_complete ??
+          record.is_complete ??
           isRecordComplete({
-            name: latestRecord.name,
-            date: latestRecord.date,
-            start: latestRecord.start,
-            end: latestRecord.end,
-            role: latestRecord.role,
+            name: record.name,
+            date: record.date,
+            start: record.start,
+            end: record.end,
+            role: record.role,
           } as WorkingHoursRecord),
         wasIncomplete: false,
         originalIndex: index,
@@ -607,15 +590,12 @@ export function WorkingHoursEditTable({
       });
     };
 
-    // 編集モード中はソートを実行しない（順序を維持）
-    if (!isEditing) {
-      // ソートを適用
-      sortRecords(complete);
-      sortRecords(incomplete);
-    }
+    // 常にソートを適用（編集時もソート）
+    sortRecords(complete);
+    sortRecords(incomplete);
 
     return { completeRecords: complete, incompleteRecords: incomplete };
-  }, [data, isEditing]);
+  }, [data]);
 
   // 編集中の生の入力値を保持（パース前の値）
   const [editingInputValues, setEditingInputValues] = useState<
@@ -630,17 +610,6 @@ export function WorkingHoursEditTable({
 
   // 元のデータを保持（Cancel用）
   const originalDataRef = useRef<FormattedWorkingHours[]>(data || []);
-
-  // レコードが完全かどうかを判定する関数
-  const isRecordComplete = (record: WorkingHoursRecord): boolean => {
-    return !!(
-      record.name &&
-      record.date &&
-      record.start &&
-      record.end &&
-      record.role
-    );
-  };
 
   // 編集モードの切り替え時のみ状態を初期化
   useEffect(() => {
@@ -853,7 +822,7 @@ export function WorkingHoursEditTable({
             </span>
           )}
         </td>
-        <td className="px-3 py-2 whitespace-nowrap text-xs border-r border-gray-200">
+        <td className="px-3 py-2 whitespace-nowrap text-xs border-r border-gray-200 min-w-[150px]">
           {isEditing && (!hasData("role") || shouldShowOrange) ? (
             <input
               type="text"
@@ -915,7 +884,7 @@ export function WorkingHoursEditTable({
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                   End
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 min-w-[150px]">
                   Role
                 </th>
                 {isEditing && (
@@ -966,7 +935,7 @@ export function WorkingHoursEditTable({
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                   End
                 </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 min-w-[150px]">
                   Role
                 </th>
                 {isEditing && (

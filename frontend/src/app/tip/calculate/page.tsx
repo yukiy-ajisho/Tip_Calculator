@@ -215,7 +215,7 @@ export default function CalculatePage() {
         {/* 計算結果テーブル */}
         <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm mb-6">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">
-            Calculation Results
+            Tips Results
           </h3>
           {results.length === 0 ? (
             <p className="text-sm text-gray-600">

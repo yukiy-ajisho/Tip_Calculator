@@ -333,7 +333,7 @@ export default function EditPage() {
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
-            Outside Range Tip
+            Outside Range Tips
           </button>
           <button
             onClick={() => setActiveTab("cashTip")}
@@ -343,7 +343,7 @@ export default function EditPage() {
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
-            Cash Tip
+            Cash Tips
           </button>
         </div>
 

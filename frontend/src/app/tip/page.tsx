@@ -54,13 +54,13 @@ export default function TipPage() {
             );
 
             if (response.success) {
-              if (
-                response.status === "processing" &&
-                response.calculationId
-              ) {
-                // status === "processing"の場合、/tip/editにリダイレクト
-                router.push(`/tip/edit?storeId=${lastSession.storeId}`);
-                return;
+            if (
+              response.status === "processing" &&
+              response.calculationId
+            ) {
+              // status === "processing"の場合、/tip/editにリダイレクト
+              router.push(`/tip/edit?storeId=${lastSession.storeId}`);
+              return;
               } else if (
                 response.status === "completed" &&
                 response.calculationId
