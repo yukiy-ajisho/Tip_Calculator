@@ -412,7 +412,7 @@ export default function ImportPage() {
                 className="px-4 py-1.5 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
               >
                 {calculationStatus.status === "completed"
-                  ? "View Previous Results"
+                  ? "Proceed to Results"
                   : "Edit Existing Data"}
               </button>
               <button
