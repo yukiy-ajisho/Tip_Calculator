@@ -186,12 +186,20 @@ export function TimeInput({
   onBlur,
   disabled,
   timeFormat = "24h",
+  onKeyDown,
+  "data-record-id": dataRecordId,
+  "data-field": dataField,
+  "data-is-complete": dataIsComplete,
 }: {
   value: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
   disabled?: boolean;
   timeFormat?: "24h" | "12h";
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+  "data-record-id"?: string;
+  "data-field"?: string;
+  "data-is-complete"?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -454,9 +462,16 @@ export function TimeInput({
     setSelection(inputRef, curSegment);
   }, [segments, curSegment]);
 
-  const onKeyDown = useCallback(
+  const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
       const key = event.key;
+
+      // Enterキーの場合は親のonKeyDownに委譲（setSelectionは不要）
+      if (key === "Enter" && onKeyDown) {
+        onKeyDown(event);
+        return;
+      }
+
       setSelection(inputRef, curSegment);
 
       switch (key) {
@@ -495,6 +510,7 @@ export function TimeInput({
       onSegmentNumberValueChange,
       onAmpmToggle,
       timeFormat,
+      onKeyDown,
     ]
   );
 
@@ -548,12 +564,15 @@ export function TimeInput({
           onBlur?.();
         }}
         onClick={onClick}
-        onKeyDown={onKeyDown}
+        onKeyDown={handleKeyDown}
         value={inputStr}
         placeholder={placeholder}
         onChange={() => {}}
         disabled={disabled}
         spellCheck={false}
+        data-record-id={dataRecordId}
+        data-field={dataField}
+        data-is-complete={dataIsComplete}
       />
       {hasValue && (
         <button

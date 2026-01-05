@@ -187,24 +187,22 @@ export default function CalculatePage() {
   return (
     <div className="p-8">
       <div className="max-w-7xl mx-auto">
-        <h2 className="text-xl font-semibold text-gray-800 mb-6">Calculate</h2>
-
         {/* Store と Period の表示 */}
-        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm mb-6">
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2">
-                Store
+        <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm mb-6">
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2 flex-1">
+              <label className="text-sm font-medium text-gray-700">
+                Store:
               </label>
-              <p className="text-sm text-gray-900">
+              <p className="text-base text-gray-900">
                 {calculation.store_name || "Unknown Store"}
               </p>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2">
-                Period
+            <div className="flex items-center gap-2 flex-1">
+              <label className="text-sm font-medium text-gray-700">
+                Period:
               </label>
-              <p className="text-sm text-gray-900">
+              <p className="text-base text-gray-900">
                 {formatDate(calculation.period_start)} -{" "}
                 {formatDate(calculation.period_end)}
               </p>
@@ -228,9 +226,6 @@ export default function CalculatePage() {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       Employee
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      Date
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
                       Tips
@@ -261,9 +256,6 @@ export default function CalculatePage() {
                                   {name}
                                 </td>
                               )}
-                              <td className="px-4 py-3 text-sm text-gray-700">
-                                {formatDate(result.date)}
-                              </td>
                               <td className="px-4 py-3 text-sm text-gray-700 text-right">
                                 ${(result.tips || 0).toFixed(2)}
                               </td>
@@ -284,7 +276,7 @@ export default function CalculatePage() {
                   )}
                   <tr className="bg-green-50 border-t-2 border-gray-300">
                     <td
-                      colSpan={2}
+                      colSpan={1}
                       className="px-4 py-3 text-sm font-bold text-gray-900"
                     >
                       Grand Total:

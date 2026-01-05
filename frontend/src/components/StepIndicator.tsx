@@ -4,8 +4,8 @@ import { usePathname } from "next/navigation";
 
 const steps = [
   { number: 1, label: "Import", path: "/tip/import" },
-  { number: 2, label: "Edit", path: "/tip/edit" },
-  { number: 3, label: "Calculate", path: "/tip/calculate" },
+  { number: 2, label: "Review", path: "/tip/edit" },
+  { number: 3, label: "Results", path: "/tip/calculate" },
 ];
 
 export function StepIndicator() {
@@ -36,8 +36,12 @@ export function StepIndicator() {
                 <div className="flex flex-col items-center flex-1 relative">
                   {/* 丸と数字 */}
                   <div className="relative z-10">
+                    {/* 外側のリング（アニメーション用） */}
+                    {isActive && (
+                      <div className="absolute inset-0 rounded-full ring-8 ring-blue-300 shadow-lg shadow-blue-500/50 animate-pulse" />
+                    )}
                     <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${
+                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 relative ${
                         isActive
                           ? "bg-blue-500"
                           : isCompleted
