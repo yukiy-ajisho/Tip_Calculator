@@ -1335,9 +1335,56 @@ app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
         console.error("Supabase insert error:", insertError);
         throw new Error(`Failed to save working hours: ${insertError.message}`);
       }
+
+      // 5. employee_tip_statusを生成
+      // 念のため、既存のemployee_tip_statusを削除してから挿入（同じcalculation_idの場合）
+      const { error: deleteExistingError } = await supabase
+        .from("employee_tip_status")
+        .delete()
+        .eq("calculation_id", calculationId);
+
+      if (deleteExistingError) {
+        console.error(
+          "Supabase delete existing employee_tip_status error:",
+          deleteExistingError
+        );
+        // 削除エラーは致命的ではないので、警告のみ（続行）
+        console.warn(
+          "Failed to delete existing employee_tip_status, but continuing..."
+        );
+      }
+
+      // formatted_working_hoursからユニークな従業員名を取得（is_completeに関係なく）
+      const uniqueEmployeeNames = [
+        ...new Set(insertData.map((record) => record.name).filter(Boolean)),
+      ];
+
+      if (uniqueEmployeeNames.length > 0) {
+        const employeeTipStatusData = uniqueEmployeeNames.map((name) => ({
+          calculation_id: calculationId,
+          stores_id: stores_id,
+          employee_name: name,
+          is_tipped: true, // 初期値は全てtrue
+        }));
+
+        const { error: tipStatusError } = await supabase
+          .from("employee_tip_status")
+          .insert(employeeTipStatusData);
+
+        if (tipStatusError) {
+          console.error(
+            "Supabase insert employee_tip_status error:",
+            tipStatusError
+          );
+          // employee_tip_statusのエラーは致命的ではないので、警告のみ
+          console.warn(
+            "Failed to create employee_tip_status, but continuing..."
+          );
+        }
+      }
     }
 
-    // 5. 成功ステータスのみ返す（データは返さない）
+    // 6. 成功ステータスのみ返す（データは返さない）
     res.status(200).json({
       success: true,
       calculationId,
@@ -1686,7 +1733,7 @@ app.post("/api/tips/calculate", authMiddleware, async (req, res) => {
       });
     }
 
-    // 6. 成功レスポンスを返す
+    // 7. 成功レスポンスを返す
     res.status(200).json({
       success: true,
       calculationId: calculationId,
@@ -1696,6 +1743,239 @@ app.post("/api/tips/calculate", authMiddleware, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// GET /api/tips/employee-tip-status
+app.get("/api/tips/employee-tip-status", authMiddleware, async (req, res) => {
+  try {
+    const { calculationId } = req.query;
+
+    if (!calculationId) {
+      return res.status(400).json({ error: "calculationId is required" });
+    }
+
+    // 1. tip_calculationsからstores_idを取得して権限チェック
+    const { data: calculation, error: calcError } = await supabase
+      .from("tip_calculations")
+      .select("stores_id")
+      .eq("id", calculationId)
+      .single();
+
+    if (calcError || !calculation) {
+      return res.status(404).json({ error: "Calculation not found" });
+    }
+
+    // 2. ユーザーが権限を持つ店を取得
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      throw new Error(
+        `Failed to fetch user stores: ${storeUsersError.message}`
+      );
+    }
+
+    const storeIds = storeUsers?.map((su) => su.store_id) || [];
+    if (!storeIds.includes(calculation.stores_id)) {
+      return res.status(403).json({
+        error: "You do not have permission to access this calculation",
+      });
+    }
+
+    // 3. employee_tip_statusを取得
+    const { data, error } = await supabase
+      .from("employee_tip_status")
+      .select("*")
+      .eq("calculation_id", calculationId)
+      .order("employee_name", { ascending: true });
+
+    if (error) {
+      console.error("Supabase select employee_tip_status error:", error);
+      throw new Error(`Failed to fetch employee tip status: ${error.message}`);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: data || [],
+    });
+  } catch (error) {
+    console.error("Error fetching employee tip status:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/tips/employee-tip-status
+app.post("/api/tips/employee-tip-status", authMiddleware, async (req, res) => {
+  try {
+    const { calculationId, employeeStatuses } = req.body;
+
+    if (
+      !calculationId ||
+      !employeeStatuses ||
+      !Array.isArray(employeeStatuses)
+    ) {
+      return res.status(400).json({
+        error: "calculationId and employeeStatuses array are required",
+      });
+    }
+
+    // 1. tip_calculationsからstores_idを取得して権限チェック
+    const { data: calculation, error: calcError } = await supabase
+      .from("tip_calculations")
+      .select("stores_id")
+      .eq("id", calculationId)
+      .single();
+
+    if (calcError || !calculation) {
+      return res.status(404).json({ error: "Calculation not found" });
+    }
+
+    // 2. ユーザーが権限を持つ店を取得
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      throw new Error(
+        `Failed to fetch user stores: ${storeUsersError.message}`
+      );
+    }
+
+    const storeIds = storeUsers?.map((su) => su.store_id) || [];
+    if (!storeIds.includes(calculation.stores_id)) {
+      return res.status(403).json({
+        error: "You do not have permission to access this calculation",
+      });
+    }
+
+    // 3. 既存のemployee_tip_statusを削除
+    const { error: deleteError } = await supabase
+      .from("employee_tip_status")
+      .delete()
+      .eq("calculation_id", calculationId);
+
+    if (deleteError) {
+      console.error("Supabase delete employee_tip_status error:", deleteError);
+      throw new Error(
+        `Failed to delete existing employee tip status: ${deleteError.message}`
+      );
+    }
+
+    // 4. 新しいemployee_tip_statusを挿入
+    if (employeeStatuses.length > 0) {
+      const insertData = employeeStatuses.map((status) => ({
+        calculation_id: calculationId,
+        stores_id: calculation.stores_id,
+        employee_name: status.employee_name,
+        is_tipped: status.is_tipped,
+      }));
+
+      const { error: insertError } = await supabase
+        .from("employee_tip_status")
+        .insert(insertData);
+
+      if (insertError) {
+        console.error(
+          "Supabase insert employee_tip_status error:",
+          insertError
+        );
+        throw new Error(
+          `Failed to save employee tip status: ${insertError.message}`
+        );
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+    });
+  } catch (error) {
+    console.error("Error saving employee tip status:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/tips/employee-tip-status
+app.delete(
+  "/api/tips/employee-tip-status",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { calculationId, employeeNames } = req.body;
+
+      if (!calculationId) {
+        return res.status(400).json({ error: "calculationId is required" });
+      }
+
+      // 1. tip_calculationsからstores_idを取得して権限チェック
+      const { data: calculation, error: calcError } = await supabase
+        .from("tip_calculations")
+        .select("stores_id")
+        .eq("id", calculationId)
+        .single();
+
+      if (calcError || !calculation) {
+        return res.status(404).json({ error: "Calculation not found" });
+      }
+
+      // 2. ユーザーが権限を持つ店を取得
+      const { data: storeUsers, error: storeUsersError } = await supabase
+        .from("store_users")
+        .select("store_id")
+        .eq("user_id", req.user.id);
+
+      if (storeUsersError) {
+        console.error("Supabase select store_users error:", storeUsersError);
+        throw new Error(
+          `Failed to fetch user stores: ${storeUsersError.message}`
+        );
+      }
+
+      const storeIds = storeUsers?.map((su) => su.store_id) || [];
+      if (!storeIds.includes(calculation.stores_id)) {
+        return res.status(403).json({
+          error: "You do not have permission to access this calculation",
+        });
+      }
+
+      // 3. employee_tip_statusを削除
+      let deleteQuery = supabase
+        .from("employee_tip_status")
+        .delete()
+        .eq("calculation_id", calculationId);
+
+      if (
+        employeeNames &&
+        Array.isArray(employeeNames) &&
+        employeeNames.length > 0
+      ) {
+        deleteQuery = deleteQuery.in("employee_name", employeeNames);
+      }
+
+      const { error: deleteError } = await deleteQuery;
+
+      if (deleteError) {
+        console.error(
+          "Supabase delete employee_tip_status error:",
+          deleteError
+        );
+        throw new Error(
+          `Failed to delete employee tip status: ${deleteError.message}`
+        );
+      }
+
+      res.status(200).json({
+        success: true,
+      });
+    } catch (error) {
+      console.error("Error deleting employee tip status:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
 
 // GET /api/tips/calculation-results
 app.get("/api/tips/calculation-results", authMiddleware, async (req, res) => {
@@ -2037,6 +2317,21 @@ app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
       );
     }
 
+    // 8. employee_tip_statusを削除（Save Tips時）
+    const { error: deleteTipStatusError } = await supabase
+      .from("employee_tip_status")
+      .delete()
+      .eq("calculation_id", calculationId);
+
+    if (deleteTipStatusError) {
+      console.error(
+        "Supabase delete employee_tip_status error:",
+        deleteTipStatusError
+      );
+      // employee_tip_statusの削除エラーは致命的ではないので、警告のみ（続行）
+      console.warn("Failed to delete employee_tip_status, but continuing...");
+    }
+
     res.status(200).json({
       success: true,
     });
@@ -2290,6 +2585,113 @@ app.patch(
       res.status(200).json({ success: true, message: "Record unarchived" });
     } catch (error) {
       console.error("Error unarchiving calculation result:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// PATCH /api/tips/calculation-results/:id - Update tips and cash_tips
+app.patch(
+  "/api/tips/calculation-results/:id",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { tips, cash_tips } = req.body;
+
+      if (!id) {
+        return res.status(400).json({ error: "id is required" });
+      }
+
+      // Validate tips and cash_tips
+      if (tips !== undefined && tips !== null) {
+        if (typeof tips !== "number" || tips < 0) {
+          return res.status(400).json({
+            error: "tips must be a non-negative number",
+          });
+        }
+      }
+
+      if (cash_tips !== undefined && cash_tips !== null) {
+        if (typeof cash_tips !== "number" || cash_tips < 0) {
+          return res.status(400).json({
+            error: "cash_tips must be a non-negative number",
+          });
+        }
+      }
+
+      // 1. ユーザーが権限を持つ店を取得
+      const { data: storeUsers, error: storeUsersError } = await supabase
+        .from("store_users")
+        .select("store_id")
+        .eq("user_id", req.user.id);
+
+      if (storeUsersError) {
+        console.error("Supabase select store_users error:", storeUsersError);
+        throw new Error(
+          `Failed to fetch user stores: ${storeUsersError.message}`
+        );
+      }
+
+      if (!storeUsers || storeUsers.length === 0) {
+        return res.status(403).json({ error: "No store access" });
+      }
+
+      const storeIds = storeUsers.map((su) => su.store_id);
+
+      // 2. レコードが存在し、ユーザーがアクセス権を持つか確認
+      const { data: record, error: fetchError } = await supabase
+        .from("tip_calculation_results")
+        .select("id, calculation_id")
+        .eq("id", id)
+        .single();
+
+      if (fetchError || !record) {
+        return res.status(404).json({ error: "Record not found" });
+      }
+
+      // 3. calculation_idからtip_calculationsを取得して権限チェック
+      const { data: calculation, error: calcError } = await supabase
+        .from("tip_calculations")
+        .select("stores_id")
+        .eq("id", record.calculation_id)
+        .single();
+
+      if (calcError || !calculation) {
+        return res.status(404).json({ error: "Calculation not found" });
+      }
+
+      if (!storeIds.includes(calculation.stores_id)) {
+        return res.status(403).json({
+          error: "You do not have permission to update this record",
+        });
+      }
+
+      // 4. レコードを更新
+      const updateData = {};
+      if (tips !== undefined) {
+        updateData.tips = tips;
+      }
+      if (cash_tips !== undefined) {
+        updateData.cash_tips = cash_tips;
+      }
+
+      const { error: updateError } = await supabase
+        .from("tip_calculation_results")
+        .update(updateData)
+        .eq("id", id);
+
+      if (updateError) {
+        console.error(
+          "Supabase update tip_calculation_results error:",
+          updateError
+        );
+        throw new Error(`Failed to update record: ${updateError.message}`);
+      }
+
+      res.status(200).json({ success: true, message: "Record updated" });
+    } catch (error) {
+      console.error("Error updating calculation result:", error);
       res.status(500).json({ error: error.message });
     }
   }

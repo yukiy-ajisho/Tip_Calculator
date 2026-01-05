@@ -29,6 +29,15 @@ export default function RecordsPage() {
   const [initialArchivedRecordIds, setInitialArchivedRecordIds] = useState<
     Set<string>
   >(new Set());
+  // Tip Result Combine用の編集値（tips, cashTips）
+  const [editingValuesTipResultCombine, setEditingValuesTipResultCombine] =
+    useState<Record<string, { tips: number; cashTips: number }>>({});
+  // Tip Result Combine用の入力中の文字列（tips, cashTips）
+  const [tipInputsTipResultCombine, setTipInputsTipResultCombine] = useState<
+    Map<string, string>
+  >(new Map());
+  const [cashTipInputsTipResultCombine, setCashTipInputsTipResultCombine] =
+    useState<Map<string, string>>(new Map());
 
   // Editモードの状態（Store Breakdown）
   const [isEditingStoreBreakdown, setIsEditingStoreBreakdown] = useState(false);
@@ -39,14 +48,41 @@ export default function RecordsPage() {
     initialArchivedRecordIdsStoreBreakdown,
     setInitialArchivedRecordIdsStoreBreakdown,
   ] = useState<Set<string>>(new Set());
+  // Store Breakdown用の編集値（tips, cashTips）
+  const [editingValuesStoreBreakdown, setEditingValuesStoreBreakdown] =
+    useState<Record<string, { tips: number; cashTips: number }>>({});
+  // Store Breakdown用の入力中の文字列（tips, cashTips）
+  const [tipInputsStoreBreakdown, setTipInputsStoreBreakdown] = useState<
+    Map<string, string>
+  >(new Map());
+  const [cashTipInputsStoreBreakdown, setCashTipInputsStoreBreakdown] =
+    useState<Map<string, string>>(new Map());
 
-  // 日付をフォーマット（YYYY-MM-DD → MM/DD/YYYY）
+  // フィルター用のstate（Tip Result Combine）
+  const [selectedYearTipResultCombine, setSelectedYearTipResultCombine] =
+    useState<string>("");
+  const [selectedPeriodTipResultCombine, setSelectedPeriodTipResultCombine] =
+    useState<string>("");
+  const [selectedNameTipResultCombine, setSelectedNameTipResultCombine] =
+    useState<string>("");
+
+  // フィルター用のstate（Store Breakdown）
+  const [selectedYearStoreBreakdown, setSelectedYearStoreBreakdown] =
+    useState<string>("");
+  const [selectedPeriodStoreBreakdown, setSelectedPeriodStoreBreakdown] =
+    useState<string>("");
+  const [selectedNameStoreBreakdown, setSelectedNameStoreBreakdown] =
+    useState<string>("");
+  const [selectedStoreStoreBreakdown, setSelectedStoreStoreBreakdown] =
+    useState<string>("");
+
+  // 日付をフォーマット（YYYY-MM-DD → MM/DD/YY）
   const formatDate = (dateString: string | null): string => {
     if (!dateString) return "";
     const parts = dateString.split("-");
     if (parts.length !== 3) return dateString;
     const [year, month, day] = parts;
-    return `${month}/${day}/${year}`;
+    return `${month}/${day}/${year.slice(-2)}`;
   };
 
   // アーカイブ日時をフォーマット（ISO 8601 → MM/DD/YYYY HH:MM AM/PM または MM/DD/YYYY HH:MM）
@@ -108,11 +144,17 @@ export default function RecordsPage() {
       setIsEditingStoreBreakdown(false);
       setSelectedRecordsStoreBreakdown({});
       setInitialArchivedRecordIdsStoreBreakdown(new Set());
+      setEditingValuesStoreBreakdown({});
+      setTipInputsStoreBreakdown(new Map());
+      setCashTipInputsStoreBreakdown(new Map());
     } else if (activeTab === "storeBreakdown") {
       // Store Breakdownタブに切り替わったら、Tip Result Combineの編集モードをリセット
       setIsEditingTipResultCombine(false);
       setSelectedRecords({});
       setInitialArchivedRecordIds(new Set());
+      setEditingValuesTipResultCombine({});
+      setTipInputsTipResultCombine(new Map());
+      setCashTipInputsTipResultCombine(new Map());
     }
   }, [activeTab]);
 
@@ -166,9 +208,101 @@ export default function RecordsPage() {
     return grouped;
   }, [Records]);
 
-  // 各日付の合計を計算
+  // Tip Result Combine用: フィルターオプションを生成
+  const filterOptionsTipResultCombine = useMemo(() => {
+    const years = new Set<string>();
+    const periods = new Set<string>();
+    const names = new Set<string>();
+
+    Records.forEach((record) => {
+      // Year: periodStartから年を抽出（MM/DD/YY形式なので、最後の2桁が年）
+      const periodParts = record.periodStart.split("/");
+      if (periodParts.length === 3) {
+        const year = "20" + periodParts[2]; // YY → 20YY
+        years.add(year);
+      }
+      // Period: periodStartをそのまま使用
+      if (record.periodStart) {
+        periods.add(record.periodStart);
+      }
+      // Name: nameをそのまま使用
+      if (record.name) {
+        names.add(record.name);
+      }
+    });
+
+    return {
+      years: Array.from(years).sort((a, b) => b.localeCompare(a)), // 降順
+      periods: Array.from(periods).sort(),
+      names: Array.from(names).sort(),
+    };
+  }, [Records]);
+
+  // Tip Result Combine用: フィルタリングされたgroupedByDate
+  const filteredGroupedByDate = useMemo(() => {
+    // フィルター条件に一致するレコードを抽出
+    const filteredRecords = Records.filter((record) => {
+      // Yearフィルター
+      if (selectedYearTipResultCombine) {
+        const periodParts = record.periodStart.split("/");
+        if (periodParts.length === 3) {
+          const year = "20" + periodParts[2];
+          if (year !== selectedYearTipResultCombine) return false;
+        } else {
+          return false;
+        }
+      }
+      // Periodフィルター
+      if (selectedPeriodTipResultCombine) {
+        if (record.periodStart !== selectedPeriodTipResultCombine)
+          return false;
+      }
+      // Nameフィルター
+      if (selectedNameTipResultCombine) {
+        if (record.name !== selectedNameTipResultCombine) return false;
+      }
+      return true;
+    });
+
+    // フィルターされたレコードを日付ごとにグループ化
+    const grouped: Record<
+      string,
+      {
+        id: string;
+        name: string;
+        tips: number;
+        cashTips: number;
+        isArchived: boolean;
+        archivedAt: string | null;
+      }[]
+    > = {};
+
+    filteredRecords.forEach((record) => {
+      const date = record.periodStart;
+      if (!grouped[date]) {
+        grouped[date] = [];
+      }
+      grouped[date].push({
+        id: record.id,
+        name: record.name,
+        tips: record.tips,
+        cashTips: record.cashTips,
+        isArchived: record.isArchived,
+        archivedAt: record.archivedAt,
+      });
+    });
+
+    return grouped;
+  }, [
+    Records,
+    selectedYearTipResultCombine,
+    selectedPeriodTipResultCombine,
+    selectedNameTipResultCombine,
+  ]);
+
+  // 各日付の合計を計算（フィルター適用後）
   const getDateTotal = (date: string) => {
-    const records = groupedByDate[date] || [];
+    const records = filteredGroupedByDate[date] || [];
     return records.reduce(
       (sum, record) => sum + record.tips + record.cashTips,
       0
@@ -242,6 +376,42 @@ export default function RecordsPage() {
     return records.reduce((sum, record) => sum + record.cashTips, 0);
   };
 
+  // Store Breakdown用: フィルターオプションを生成
+  const filterOptionsStoreBreakdown = useMemo(() => {
+    const years = new Set<string>();
+    const periods = new Set<string>();
+    const names = new Set<string>();
+    const stores = new Set<string>();
+
+    Records.forEach((record) => {
+      // Year: periodStartから年を抽出（MM/DD/YY形式なので、最後の2桁が年）
+      const periodParts = record.periodStart.split("/");
+      if (periodParts.length === 3) {
+        const year = "20" + periodParts[2]; // YY → 20YY
+        years.add(year);
+      }
+      // Period: periodStartをそのまま使用
+      if (record.periodStart) {
+        periods.add(record.periodStart);
+      }
+      // Name: nameをそのまま使用
+      if (record.name) {
+        names.add(record.name);
+      }
+      // Store: storeをそのまま使用
+      if (record.store) {
+        stores.add(record.store);
+      }
+    });
+
+    return {
+      years: Array.from(years).sort((a, b) => b.localeCompare(a)), // 降順
+      periods: Array.from(periods).sort(),
+      names: Array.from(names).sort(),
+      stores: Array.from(stores).sort(),
+    };
+  }, [Records]);
+
   // Store Breakdown用: 選択された日付のデータを取得し、名前でグループ化
   const getFilteredAndGroupedRecords = useMemo(() => {
     // selectedDateがnullの場合はすべての日付のデータを返す
@@ -254,8 +424,35 @@ export default function RecordsPage() {
       records = storeBreakdownByDate[selectedDate] || [];
     }
 
+    // フィルターを適用
+    const filteredRecords = records.filter((record) => {
+      // Yearフィルター
+      if (selectedYearStoreBreakdown) {
+        const periodParts = record.periodStart.split("/");
+        if (periodParts.length === 3) {
+          const year = "20" + periodParts[2];
+          if (year !== selectedYearStoreBreakdown) return false;
+        } else {
+          return false;
+        }
+      }
+      // Periodフィルター
+      if (selectedPeriodStoreBreakdown) {
+        if (record.periodStart !== selectedPeriodStoreBreakdown) return false;
+      }
+      // Nameフィルター
+      if (selectedNameStoreBreakdown) {
+        if (record.name !== selectedNameStoreBreakdown) return false;
+      }
+      // Storeフィルター
+      if (selectedStoreStoreBreakdown) {
+        if (record.store !== selectedStoreStoreBreakdown) return false;
+      }
+      return true;
+    });
+
     // ソート: 最後にクリックした列を優先
-    const sorted = [...records].sort((a, b) => {
+    const sorted = [...filteredRecords].sort((a, b) => {
       // Storeソートが有効な場合（最後にクリックされた列）
       if (storeSortOrder !== null) {
         if (storeSortOrder === "asc") {
@@ -299,7 +496,16 @@ export default function RecordsPage() {
     });
 
     return sorted;
-  }, [selectedDate, storeBreakdownByDate, nameSortOrder, storeSortOrder]);
+  }, [
+    selectedDate,
+    storeBreakdownByDate,
+    nameSortOrder,
+    storeSortOrder,
+    selectedYearStoreBreakdown,
+    selectedPeriodStoreBreakdown,
+    selectedNameStoreBreakdown,
+    selectedStoreStoreBreakdown,
+  ]);
 
   // Name列のソートを切り替える（Storeのソートを無効化）
   const handleNameSort = () => {
@@ -332,20 +538,33 @@ export default function RecordsPage() {
     // Records（フィルタリング済み、表示されているレコードのみ）を使用
     const initialSelectedRecords: Record<string, "delete" | "archive"> = {};
     const archivedIds = new Set<string>();
+    const initialEditingValues: Record<
+      string,
+      { tips: number; cashTips: number }
+    > = {};
     Records.forEach((record) => {
       if (record.isArchived) {
         initialSelectedRecords[record.id] = "archive";
         archivedIds.add(record.id);
       }
+      // 編集値を初期化（現在の値をコピー）
+      initialEditingValues[record.id] = {
+        tips: record.tips,
+        cashTips: record.cashTips,
+      };
     });
     setSelectedRecords(initialSelectedRecords);
     setInitialArchivedRecordIds(archivedIds);
+    setEditingValuesTipResultCombine(initialEditingValues);
   };
 
   const handleCancelEditTipResultCombine = () => {
     setIsEditingTipResultCombine(false);
     setSelectedRecords({});
     setInitialArchivedRecordIds(new Set());
+    setEditingValuesTipResultCombine({});
+    setTipInputsTipResultCombine(new Map());
+    setCashTipInputsTipResultCombine(new Map());
   };
 
   const handleToggleRecordSelection = (
@@ -372,6 +591,7 @@ export default function RecordsPage() {
       const deleteIds: string[] = [];
       const archiveIds: string[] = [];
       const unarchiveIds: string[] = [];
+      const updatePromises: Promise<any>[] = [];
 
       Object.entries(selectedRecords).forEach(([id, action]) => {
         if (action === "delete") {
@@ -392,11 +612,35 @@ export default function RecordsPage() {
         }
       });
 
-      // 削除、アーカイブ、アーカイブ解除を並列実行
+      // 編集値が変更されたレコードを更新
+      Object.entries(editingValuesTipResultCombine).forEach(([id, values]) => {
+        // 削除対象のレコードは更新しない
+        if (selectedRecords[id] === "delete") return;
+
+        const originalRecord = Records.find((r) => r.id === id);
+        if (!originalRecord) return;
+
+        // 値が変更されているかチェック
+        const hasChanged =
+          Math.abs(values.tips - originalRecord.tips) > 0.01 ||
+          Math.abs(values.cashTips - originalRecord.cashTips) > 0.01;
+
+        if (hasChanged) {
+          updatePromises.push(
+            api.tips.updateCalculationResult(id, {
+              tips: values.tips,
+              cash_tips: values.cashTips,
+            })
+          );
+        }
+      });
+
+      // 削除、アーカイブ、アーカイブ解除、更新を並列実行
       await Promise.all([
         ...deleteIds.map((id) => api.tips.deleteCalculationResult(id)),
         ...archiveIds.map((id) => api.tips.archiveCalculationResult(id)),
         ...unarchiveIds.map((id) => api.tips.unarchiveCalculationResult(id)),
+        ...updatePromises,
       ]);
 
       // データを再取得
@@ -409,6 +653,9 @@ export default function RecordsPage() {
       setIsEditingTipResultCombine(false);
       setSelectedRecords({});
       setInitialArchivedRecordIds(new Set());
+      setEditingValuesTipResultCombine({});
+      setTipInputsTipResultCombine(new Map());
+      setCashTipInputsTipResultCombine(new Map());
     } catch (error) {
       console.error("Error saving changes:", error);
       alert("Failed to save changes. Please try again.");
@@ -422,20 +669,33 @@ export default function RecordsPage() {
     // Records（フィルタリング済み、表示されているレコードのみ）を使用
     const initialSelectedRecords: Record<string, "delete" | "archive"> = {};
     const archivedIds = new Set<string>();
+    const initialEditingValues: Record<
+      string,
+      { tips: number; cashTips: number }
+    > = {};
     Records.forEach((record) => {
       if (record.isArchived) {
         initialSelectedRecords[record.id] = "archive";
         archivedIds.add(record.id);
       }
+      // 編集値を初期化（現在の値をコピー）
+      initialEditingValues[record.id] = {
+        tips: record.tips,
+        cashTips: record.cashTips,
+      };
     });
     setSelectedRecordsStoreBreakdown(initialSelectedRecords);
     setInitialArchivedRecordIdsStoreBreakdown(archivedIds);
+    setEditingValuesStoreBreakdown(initialEditingValues);
   };
 
   const handleCancelEditStoreBreakdown = () => {
     setIsEditingStoreBreakdown(false);
     setSelectedRecordsStoreBreakdown({});
     setInitialArchivedRecordIdsStoreBreakdown(new Set());
+    setEditingValuesStoreBreakdown({});
+    setTipInputsStoreBreakdown(new Map());
+    setCashTipInputsStoreBreakdown(new Map());
   };
 
   const handleToggleRecordSelectionStoreBreakdown = (
@@ -482,11 +742,36 @@ export default function RecordsPage() {
         }
       });
 
-      // 削除、アーカイブ、アーカイブ解除を並列実行
+      // 編集値が変更されたレコードを更新
+      const updatePromises: Promise<any>[] = [];
+      Object.entries(editingValuesStoreBreakdown).forEach(([id, values]) => {
+        // 削除対象のレコードは更新しない
+        if (selectedRecordsStoreBreakdown[id] === "delete") return;
+
+        const originalRecord = Records.find((r) => r.id === id);
+        if (!originalRecord) return;
+
+        // 値が変更されているかチェック
+        const hasChanged =
+          Math.abs(values.tips - originalRecord.tips) > 0.01 ||
+          Math.abs(values.cashTips - originalRecord.cashTips) > 0.01;
+
+        if (hasChanged) {
+          updatePromises.push(
+            api.tips.updateCalculationResult(id, {
+              tips: values.tips,
+              cash_tips: values.cashTips,
+            })
+          );
+        }
+      });
+
+      // 削除、アーカイブ、アーカイブ解除、更新を並列実行
       await Promise.all([
         ...deleteIds.map((id) => api.tips.deleteCalculationResult(id)),
         ...archiveIds.map((id) => api.tips.archiveCalculationResult(id)),
         ...unarchiveIds.map((id) => api.tips.unarchiveCalculationResult(id)),
+        ...updatePromises,
       ]);
 
       // データを再取得
@@ -499,6 +784,9 @@ export default function RecordsPage() {
       setIsEditingStoreBreakdown(false);
       setSelectedRecordsStoreBreakdown({});
       setInitialArchivedRecordIdsStoreBreakdown(new Set());
+      setEditingValuesStoreBreakdown({});
+      setTipInputsStoreBreakdown(new Map());
+      setCashTipInputsStoreBreakdown(new Map());
     } catch (error) {
       console.error("Error saving changes:", error);
       alert("Failed to save changes. Please try again.");
@@ -606,40 +894,73 @@ export default function RecordsPage() {
                   <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
                     Year
                   </label>
-                  <select className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select
+                    value={selectedYearTipResultCombine}
+                    onChange={(e) =>
+                      setSelectedYearTipResultCombine(e.target.value)
+                    }
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
                     <option value="">All</option>
+                    {filterOptionsTipResultCombine.years.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex items-center gap-3">
                   <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
                     Period
                   </label>
-                  <select className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select
+                    value={selectedPeriodTipResultCombine}
+                    onChange={(e) =>
+                      setSelectedPeriodTipResultCombine(e.target.value)
+                    }
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
                     <option value="">All</option>
+                    {filterOptionsTipResultCombine.periods.map((period) => (
+                      <option key={period} value={period}>
+                        {period}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex items-center gap-3">
                   <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
                     Name
                   </label>
-                  <select className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select
+                    value={selectedNameTipResultCombine}
+                    onChange={(e) =>
+                      setSelectedNameTipResultCombine(e.target.value)
+                    }
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
                     <option value="">All</option>
+                    {filterOptionsTipResultCombine.names.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
             </div>
             {/* データ表示カード */}
             <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-              {Object.keys(groupedByDate).length === 0 ? (
+              {Object.keys(filteredGroupedByDate).length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-sm text-gray-500">No records found</p>
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {Object.keys(groupedByDate)
+                  {Object.keys(filteredGroupedByDate)
                     .sort()
                     .map((date) => {
-                      const records = groupedByDate[date];
+                      const records = filteredGroupedByDate[date];
                       const total = getDateTotal(date);
 
                       return (
@@ -651,7 +972,7 @@ export default function RecordsPage() {
                             {/* 左側: 日付と合計 */}
                             <div className="flex items-center gap-4 min-w-[200px]">
                               <span className="text-lg font-semibold text-gray-800">
-                                {date}
+                                Period Start: {date}
                               </span>
                               <span className="text-lg font-semibold text-gray-800">
                                 ${total.toFixed(2)}
@@ -664,24 +985,24 @@ export default function RecordsPage() {
                             <table className="min-w-full divide-y divide-gray-200">
                               <thead className="bg-gray-50">
                                 <tr>
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                                     Name
                                   </th>
                                   {/* 編集時はDelete/Archive列を表示 */}
                                   {isEditingTipResultCombine && (
                                     <>
-                                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                                         Delete
                                       </th>
-                                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                                         Archive
                                       </th>
                                     </>
                                   )}
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                                     Tip
                                   </th>
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                                     Cash Tip
                                   </th>
                                 </tr>
@@ -753,10 +1074,137 @@ export default function RecordsPage() {
                                       </>
                                     )}
                                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                                      {record.tips.toFixed(2)}
+                                      {isEditingTipResultCombine ? (
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          value={
+                                            tipInputsTipResultCombine.has(
+                                              record.id
+                                            )
+                                              ? tipInputsTipResultCombine.get(
+                                                  record.id
+                                                )!
+                                              : String(
+                                                  editingValuesTipResultCombine[
+                                                    record.id
+                                                  ]?.tips ?? record.tips
+                                                )
+                                          }
+                                          onChange={(e) => {
+                                            const value = e.target.value;
+                                            // 数字と小数点のみを許可（空文字列も許可）
+                                            const numericPattern =
+                                              /^(\d+\.?\d*|\.\d+)?$/;
+                                            if (numericPattern.test(value)) {
+                                              setTipInputsTipResultCombine(
+                                                (prev) => {
+                                                  const newMap = new Map(prev);
+                                                  newMap.set(record.id, value);
+                                                  return newMap;
+                                                }
+                                              );
+                                            }
+                                          }}
+                                          onBlur={(e) => {
+                                            const value = e.target.value;
+                                            // フォーカスアウト時に数値に変換
+                                            const numValue =
+                                              value === "" || value === "."
+                                                ? 0
+                                                : parseFloat(value) || 0;
+                                            setEditingValuesTipResultCombine(
+                                              (prev) => ({
+                                                ...prev,
+                                                [record.id]: {
+                                                  tips: numValue,
+                                                  cashTips:
+                                                    prev[record.id]?.cashTips ??
+                                                    record.cashTips,
+                                                },
+                                              })
+                                            );
+                                            // 入力中の文字列をクリア
+                                            setTipInputsTipResultCombine(
+                                              (prev) => {
+                                                const newMap = new Map(prev);
+                                                newMap.delete(record.id);
+                                                return newMap;
+                                              }
+                                            );
+                                          }}
+                                          className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                      ) : (
+                                        `$${record.tips.toFixed(2)}`
+                                      )}
                                     </td>
                                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                                      {record.cashTips.toFixed(2)}
+                                      {isEditingTipResultCombine ? (
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          value={
+                                            cashTipInputsTipResultCombine.has(
+                                              record.id
+                                            )
+                                              ? cashTipInputsTipResultCombine.get(
+                                                  record.id
+                                                )!
+                                              : String(
+                                                  editingValuesTipResultCombine[
+                                                    record.id
+                                                  ]?.cashTips ??
+                                                    record.cashTips
+                                                )
+                                          }
+                                          onChange={(e) => {
+                                            const value = e.target.value;
+                                            // 数字と小数点のみを許可（空文字列も許可）
+                                            const numericPattern =
+                                              /^(\d+\.?\d*|\.\d+)?$/;
+                                            if (numericPattern.test(value)) {
+                                              setCashTipInputsTipResultCombine(
+                                                (prev) => {
+                                                  const newMap = new Map(prev);
+                                                  newMap.set(record.id, value);
+                                                  return newMap;
+                                                }
+                                              );
+                                            }
+                                          }}
+                                          onBlur={(e) => {
+                                            const value = e.target.value;
+                                            // フォーカスアウト時に数値に変換
+                                            const numValue =
+                                              value === "" || value === "."
+                                                ? 0
+                                                : parseFloat(value) || 0;
+                                            setEditingValuesTipResultCombine(
+                                              (prev) => ({
+                                                ...prev,
+                                                [record.id]: {
+                                                  tips:
+                                                    prev[record.id]?.tips ??
+                                                    record.tips,
+                                                  cashTips: numValue,
+                                                },
+                                              })
+                                            );
+                                            // 入力中の文字列をクリア
+                                            setCashTipInputsTipResultCombine(
+                                              (prev) => {
+                                                const newMap = new Map(prev);
+                                                newMap.delete(record.id);
+                                                return newMap;
+                                              }
+                                            );
+                                          }}
+                                          className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                      ) : (
+                                        `$${record.cashTips.toFixed(2)}`
+                                      )}
                                     </td>
                                   </tr>
                                 ))}
@@ -777,29 +1225,81 @@ export default function RecordsPage() {
           <>
             {/* フィルターカード */}
             <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm mb-6">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-4 gap-4">
                 <div className="flex items-center gap-3">
                   <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
                     Year
                   </label>
-                  <select className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select
+                    value={selectedYearStoreBreakdown}
+                    onChange={(e) =>
+                      setSelectedYearStoreBreakdown(e.target.value)
+                    }
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
                     <option value="">All</option>
+                    {filterOptionsStoreBreakdown.years.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex items-center gap-3">
                   <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
                     Period
                   </label>
-                  <select className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select
+                    value={selectedPeriodStoreBreakdown}
+                    onChange={(e) =>
+                      setSelectedPeriodStoreBreakdown(e.target.value)
+                    }
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
                     <option value="">All</option>
+                    {filterOptionsStoreBreakdown.periods.map((period) => (
+                      <option key={period} value={period}>
+                        {period}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex items-center gap-3">
                   <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
                     Name
                   </label>
-                  <select className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select
+                    value={selectedNameStoreBreakdown}
+                    onChange={(e) =>
+                      setSelectedNameStoreBreakdown(e.target.value)
+                    }
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
                     <option value="">All</option>
+                    {filterOptionsStoreBreakdown.names.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                    Store
+                  </label>
+                  <select
+                    value={selectedStoreStoreBreakdown}
+                    onChange={(e) =>
+                      setSelectedStoreStoreBreakdown(e.target.value)
+                    }
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">All</option>
+                    {filterOptionsStoreBreakdown.stores.map((store) => (
+                      <option key={store} value={store}>
+                        {store}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -856,7 +1356,7 @@ export default function RecordsPage() {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                           <button
                             onClick={handleNameSort}
                             className="flex items-center gap-1 hover:text-gray-700 transition-colors"
@@ -874,18 +1374,18 @@ export default function RecordsPage() {
                         {/* 編集時はDelete/Archive列を表示 */}
                         {isEditingStoreBreakdown && (
                           <>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                               Delete
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                               Archive
                             </th>
                           </>
                         )}
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                           Period Start
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                           <button
                             onClick={handleStoreSort}
                             className="flex items-center gap-1 hover:text-gray-700 transition-colors"
@@ -900,10 +1400,10 @@ export default function RecordsPage() {
                             </span>
                           </button>
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                           Tips
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                           Cash Tips
                         </th>
                       </tr>
@@ -1004,10 +1504,124 @@ export default function RecordsPage() {
                                 {record.store}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                ${record.tips.toFixed(2)}
+                                {isEditingStoreBreakdown ? (
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={
+                                      tipInputsStoreBreakdown.has(record.id)
+                                        ? tipInputsStoreBreakdown.get(
+                                            record.id
+                                          )!
+                                        : String(
+                                            editingValuesStoreBreakdown[
+                                              record.id
+                                            ]?.tips ?? record.tips
+                                          )
+                                    }
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      // 数字と小数点のみを許可（空文字列も許可）
+                                      const numericPattern =
+                                        /^(\d+\.?\d*|\.\d+)?$/;
+                                      if (numericPattern.test(value)) {
+                                        setTipInputsStoreBreakdown((prev) => {
+                                          const newMap = new Map(prev);
+                                          newMap.set(record.id, value);
+                                          return newMap;
+                                        });
+                                      }
+                                    }}
+                                    onBlur={(e) => {
+                                      const value = e.target.value;
+                                      // フォーカスアウト時に数値に変換
+                                      const numValue =
+                                        value === "" || value === "."
+                                          ? 0
+                                          : parseFloat(value) || 0;
+                                      setEditingValuesStoreBreakdown((prev) => ({
+                                        ...prev,
+                                        [record.id]: {
+                                          tips: numValue,
+                                          cashTips:
+                                            prev[record.id]?.cashTips ??
+                                            record.cashTips,
+                                        },
+                                      }));
+                                      // 入力中の文字列をクリア
+                                      setTipInputsStoreBreakdown((prev) => {
+                                        const newMap = new Map(prev);
+                                        newMap.delete(record.id);
+                                        return newMap;
+                                      });
+                                    }}
+                                    className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                ) : (
+                                  `$${record.tips.toFixed(2)}`
+                                )}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                ${record.cashTips.toFixed(2)}
+                                {isEditingStoreBreakdown ? (
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={
+                                      cashTipInputsStoreBreakdown.has(
+                                        record.id
+                                      )
+                                        ? cashTipInputsStoreBreakdown.get(
+                                            record.id
+                                          )!
+                                        : String(
+                                            editingValuesStoreBreakdown[
+                                              record.id
+                                            ]?.cashTips ?? record.cashTips
+                                          )
+                                    }
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      // 数字と小数点のみを許可（空文字列も許可）
+                                      const numericPattern =
+                                        /^(\d+\.?\d*|\.\d+)?$/;
+                                      if (numericPattern.test(value)) {
+                                        setCashTipInputsStoreBreakdown(
+                                          (prev) => {
+                                            const newMap = new Map(prev);
+                                            newMap.set(record.id, value);
+                                            return newMap;
+                                          }
+                                        );
+                                      }
+                                    }}
+                                    onBlur={(e) => {
+                                      const value = e.target.value;
+                                      // フォーカスアウト時に数値に変換
+                                      const numValue =
+                                        value === "" || value === "."
+                                          ? 0
+                                          : parseFloat(value) || 0;
+                                      setEditingValuesStoreBreakdown((prev) => ({
+                                        ...prev,
+                                        [record.id]: {
+                                          tips:
+                                            prev[record.id]?.tips ??
+                                            record.tips,
+                                          cashTips: numValue,
+                                        },
+                                      }));
+                                      // 入力中の文字列をクリア
+                                      setCashTipInputsStoreBreakdown((prev) => {
+                                        const newMap = new Map(prev);
+                                        newMap.delete(record.id);
+                                        return newMap;
+                                      });
+                                    }}
+                                    className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                ) : (
+                                  `$${record.cashTips.toFixed(2)}`
+                                )}
                               </td>
                             </tr>
                           );

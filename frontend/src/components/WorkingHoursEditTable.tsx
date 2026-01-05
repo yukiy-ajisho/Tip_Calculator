@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { FormattedWorkingHours } from "@/types";
-import { X, Trash2 } from "lucide-react";
+import { FormattedWorkingHours, RoleMapping } from "@/types";
+import { X, Trash2, ChevronDown } from "lucide-react";
 import { TimeInput } from "./TimeInput";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { convert24To12 } from "@/lib/time-format";
@@ -27,6 +27,7 @@ interface WorkingHoursEditTableProps {
   onCancel?: () => void;
   onIncompleteCountChange?: (count: number) => void;
   onDeleteRecord?: (id: string) => void;
+  roleMappings?: RoleMapping[];
 }
 
 type DateSegmentType = "month" | "day" | "year" | "space";
@@ -63,6 +64,32 @@ function parseDate(dateString: string): string | null {
   return `${year}-${month.toString().padStart(2, "0")}-${day
     .toString()
     .padStart(2, "0")}`;
+}
+
+/**
+ * Get day of week from date string (YYYY-MM-DD or MM/DD/YY format)
+ * Returns "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" or empty string if invalid
+ */
+function formatDayOfWeek(dateString: string | null): string {
+  if (!dateString || dateString.trim() === "") return "";
+
+  // Try to parse as YYYY-MM-DD first
+  let date: Date | null = null;
+  if (dateString.includes("-")) {
+    // YYYY-MM-DD format
+    date = new Date(dateString + "T00:00:00");
+  } else if (dateString.includes("/")) {
+    // MM/DD/YY format - convert to YYYY-MM-DD first
+    const parsed = parseDate(dateString);
+    if (parsed) {
+      date = new Date(parsed + "T00:00:00");
+    }
+  }
+
+  if (!date || isNaN(date.getTime())) return "";
+
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return dayNames[date.getDay()];
 }
 
 /**
@@ -215,11 +242,19 @@ function DateInput({
   onChange,
   onBlur,
   disabled,
+  onKeyDown,
+  "data-record-id": dataRecordId,
+  "data-field": dataField,
+  "data-is-complete": dataIsComplete,
 }: {
   value: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
   disabled?: boolean;
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+  "data-record-id"?: string;
+  "data-field"?: string;
+  "data-is-complete"?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [segments, setSegments] = useState<DateSegment[]>(() =>
@@ -401,9 +436,16 @@ function DateInput({
     }
   }, [segments, curSegment, onSegmentChange]);
 
-  const onKeyDown = useCallback(
+  const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
       const key = event.key;
+
+      // Enterキーの場合は親のonKeyDownに委譲（setDateSelectionは不要）
+      if (key === "Enter" && onKeyDown) {
+        onKeyDown(event);
+        return;
+      }
+
       setDateSelection(inputRef, curSegment);
 
       switch (key) {
@@ -433,6 +475,7 @@ function DateInput({
       onSegmentChange,
       onSegmentValueRemove,
       onSegmentNumberValueChange,
+      onKeyDown,
     ]
   );
 
@@ -480,12 +523,15 @@ function DateInput({
           onBlur?.();
         }}
         onClick={onClick}
-        onKeyDown={onKeyDown}
+        onKeyDown={handleKeyDown}
         value={inputStr}
         placeholder="MM/DD/YY"
         onChange={() => {}}
         disabled={disabled}
         spellCheck={false}
+        data-record-id={dataRecordId}
+        data-field={dataField}
+        data-is-complete={dataIsComplete}
       />
       {hasValue && (
         <button
@@ -508,8 +554,128 @@ export function WorkingHoursEditTable({
   onCancel,
   onIncompleteCountChange,
   onDeleteRecord,
+  roleMappings = [],
 }: WorkingHoursEditTableProps) {
   const { timeFormat } = useUserSettings();
+
+  // ドロップダウンのオプションを構築
+  const roleOptions = useMemo(() => {
+    const options: string[] = [];
+
+    // actual_role_nameとtrainee_role_nameを収集（登録されているもののみ）
+    roleMappings.forEach((mapping) => {
+      if (mapping.actual_role_name) {
+        options.push(mapping.actual_role_name);
+      }
+      if (mapping.trainee_role_name) {
+        options.push(mapping.trainee_role_name);
+      }
+    });
+
+    // 重複を削除してソート
+    const uniqueOptions = Array.from(new Set(options)).sort();
+
+    // 「CashTip only」を最後に追加
+    return [...uniqueOptions, "CashTip only"];
+  }, [roleMappings]);
+
+  // RoleSelectDropdownコンポーネント
+  const RoleSelectDropdown = ({
+    value,
+    options,
+    onChange,
+    onBlur,
+    onKeyDown,
+    "data-record-id": dataRecordId,
+    "data-field": dataField,
+    "data-is-complete": dataIsComplete,
+  }: {
+    value: string;
+    options: string[];
+    onChange: (value: string) => void;
+    onBlur?: () => void;
+    onKeyDown?: (e: React.KeyboardEvent<HTMLButtonElement>) => void;
+    "data-record-id"?: string;
+    "data-field"?: string;
+    "data-is-complete"?: string;
+  }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // クリックアウトサイドで閉じる
+    useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+        if (
+          dropdownRef.current &&
+          !dropdownRef.current.contains(event.target as Node)
+        ) {
+          setIsOpen(false);
+          if (onBlur) {
+            onBlur();
+          }
+        }
+      };
+
+      if (isOpen) {
+        document.addEventListener("mousedown", handleClickOutside);
+      }
+
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+      };
+    }, [isOpen, onBlur]);
+
+    const displayText = value || "";
+
+    const handleOptionClick = (option: string) => {
+      onChange(option);
+      setIsOpen(false);
+      if (onBlur) {
+        onBlur();
+      }
+    };
+
+    return (
+      <div className="relative w-full" ref={dropdownRef}>
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          onKeyDown={onKeyDown}
+          data-record-id={dataRecordId}
+          data-field={dataField}
+          data-is-complete={dataIsComplete}
+          className="w-full px-1.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-left flex items-center justify-between bg-white"
+        >
+          <span
+            className={value && !options.includes(value) ? "text-gray-500" : ""}
+          >
+            {displayText || ""}
+          </span>
+          <ChevronDown
+            className={`w-3 h-3 transition-transform ${
+              isOpen ? "transform rotate-180" : ""
+            }`}
+          />
+        </button>
+
+        {isOpen && (
+          <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto w-full">
+            {options.map((option) => (
+              <div
+                key={option}
+                className={`px-2 py-1.5 text-xs cursor-pointer hover:bg-blue-50 ${
+                  value === option ? "bg-blue-100" : ""
+                }`}
+                onClick={() => handleOptionClick(option)}
+              >
+                {option}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // レコードが完全かどうかを判定する関数
   const isRecordComplete = (record: WorkingHoursRecord): boolean => {
@@ -746,6 +912,70 @@ export function WorkingHoursEditTable({
     // オレンジ色の判定：is_complete_on_importがfalseのレコード（インポート時に不完全だったレコード）
     const shouldShowOrange = !record.is_complete_on_import;
 
+    // 曜日を取得：編集値がある場合は編集値から、ない場合はrecord.dateから
+    const getDayOfWeek = () => {
+      if (editingValues && editingValues.date !== undefined) {
+        // 編集値がある場合（MM/DD/YY形式）
+        return formatDayOfWeek(editingValues.date);
+      }
+      // 編集値がない場合（YYYY-MM-DD形式）
+      return formatDayOfWeek(record.date);
+    };
+
+    // Enterキーで下のセルに移動するハンドラー
+    const handleEnterKeyDown = (
+      event: React.KeyboardEvent<HTMLInputElement | HTMLButtonElement>,
+      field: "date" | "start" | "end" | "role"
+    ) => {
+      if (event.key !== "Enter" || !isEditing) return;
+
+      event.preventDefault();
+
+      // 現在のテーブルのレコードリストを取得
+      const records = isComplete ? completeRecords : incompleteRecords;
+      const currentRecordIndex = records.findIndex((r) => r.id === record.id);
+      if (currentRecordIndex === -1) return;
+
+      // 次の行を探す（同じテーブル内のみ）
+      for (let i = currentRecordIndex + 1; i < records.length; i++) {
+        const nextRecord = records[i];
+        if (!nextRecord) continue;
+
+        // 次の行の同じ列が編集可能かチェック
+        const nextHasData = (() => {
+          if (field === "date") return !!nextRecord.date;
+          if (field === "start") return !!nextRecord.start;
+          if (field === "end") return !!nextRecord.end;
+          if (field === "role") return !!nextRecord.role;
+          return false;
+        })();
+        const nextShouldShowOrange = !nextRecord.is_complete_on_import;
+        const isNextEditable = !nextHasData || nextShouldShowOrange;
+
+        if (isNextEditable) {
+          // 次の行の同じ列の入力フィールドを見つけてフォーカス
+          const nextInput = document.querySelector(
+            `input[data-record-id="${nextRecord.id}"][data-field="${field}"][data-is-complete="${isComplete}"]`
+          ) as HTMLInputElement;
+          const nextButton = document.querySelector(
+            `button[data-record-id="${nextRecord.id}"][data-field="${field}"][data-is-complete="${isComplete}"]`
+          ) as HTMLButtonElement;
+          if (nextInput) {
+            nextInput.focus();
+            // DateInputやTimeInputの場合、最初のセグメントを選択
+            if (nextInput.setSelectionRange) {
+              nextInput.setSelectionRange(0, 0);
+            }
+          } else if (nextButton) {
+            nextButton.focus();
+          }
+          return;
+        }
+      }
+
+      // 次の編集可能なセルが見つからなかった場合は何もしない（最後の行）
+    };
+
     return (
       <tr
         key={record.id}
@@ -763,6 +993,10 @@ export function WorkingHoursEditTable({
                 handleCellChange(index, "date", value, isComplete)
               }
               onBlur={handleCellBlur}
+              onKeyDown={(e) => handleEnterKeyDown(e, "date")}
+              data-record-id={record.id}
+              data-field="date"
+              data-is-complete={isComplete.toString()}
             />
           ) : (
             <span
@@ -776,6 +1010,9 @@ export function WorkingHoursEditTable({
             </span>
           )}
         </td>
+        <td className="px-3 py-2 whitespace-nowrap text-xs border-r border-gray-200 text-center">
+          {getDayOfWeek()}
+        </td>
         <td className="px-3 py-2 whitespace-nowrap text-xs border-r border-gray-200">
           {isEditing && (!hasData("start") || shouldShowOrange) ? (
             <TimeInput
@@ -786,6 +1023,10 @@ export function WorkingHoursEditTable({
               }
               onBlur={handleCellBlur}
               timeFormat={timeFormat}
+              onKeyDown={(e) => handleEnterKeyDown(e, "start")}
+              data-record-id={record.id}
+              data-field="start"
+              data-is-complete={isComplete.toString()}
             />
           ) : (
             <span
@@ -809,6 +1050,10 @@ export function WorkingHoursEditTable({
               }
               onBlur={handleCellBlur}
               timeFormat={timeFormat}
+              onKeyDown={(e) => handleEnterKeyDown(e, "end")}
+              data-record-id={record.id}
+              data-field="end"
+              data-is-complete={isComplete.toString()}
             />
           ) : (
             <span
@@ -824,15 +1069,23 @@ export function WorkingHoursEditTable({
         </td>
         <td className="px-3 py-2 whitespace-nowrap text-xs border-r border-gray-200 min-w-[150px]">
           {isEditing && (!hasData("role") || shouldShowOrange) ? (
-            <input
-              type="text"
-              placeholder=""
-              value={getInputValue("role")}
-              onChange={(e) =>
-                handleCellChange(index, "role", e.target.value, isComplete)
-              }
+            <RoleSelectDropdown
+              value={getInputValue("role") || ""}
+              options={roleOptions}
+              onChange={(value) => {
+                // 選択された値をそのまま保存（「CashTip only」も文字列として保存）
+                // 空文字列の場合はnullを保存
+                handleCellChange(index, "role", value || "", isComplete);
+              }}
               onBlur={handleCellBlur}
-              className="w-full px-1.5 py-0.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleEnterKeyDown(e, "role");
+                }
+              }}
+              data-record-id={record.id}
+              data-field="role"
+              data-is-complete={isComplete.toString()}
             />
           ) : (
             <span
@@ -878,6 +1131,9 @@ export function WorkingHoursEditTable({
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                   Date
                 </th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                  Day
+                </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                   Start
                 </th>
@@ -898,7 +1154,7 @@ export function WorkingHoursEditTable({
               {displayCompleteRecords.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={isEditing ? 6 : 5}
+                    colSpan={isEditing ? 7 : 6}
                     className="px-3 py-2 text-center text-xs text-gray-500"
                   >
                     No complete records
@@ -929,6 +1185,9 @@ export function WorkingHoursEditTable({
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                   Date
                 </th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+                  Day
+                </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
                   Start
                 </th>
@@ -949,7 +1208,7 @@ export function WorkingHoursEditTable({
               {displayIncompleteRecords.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={isEditing ? 6 : 5}
+                    colSpan={isEditing ? 7 : 6}
                     className="px-3 py-2 text-center text-xs text-gray-500"
                   >
                     No incomplete records

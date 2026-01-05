@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CsvFileUpload } from "@/components/CsvFileUpload";
 import { CsvTextPasteInput } from "@/components/CsvTextPasteInput";
 import { PreviewModal } from "@/components/PreviewModal";
+import { StoreSelectDropdown } from "@/components/StoreSelectDropdown";
 import { api } from "@/lib/api";
 import { Store } from "@/types";
 
@@ -25,6 +26,10 @@ export default function ImportPage() {
     calculationId: string | null;
   }>({ status: null, calculationId: null });
   const [isCheckingData, setIsCheckingData] = useState<boolean>(false);
+  // 各店舗の既存データ状態を管理
+  const [storeDataStatus, setStoreDataStatus] = useState<
+    Record<string, boolean>
+  >({});
 
   const [workingHoursFile, setWorkingHoursFile] = useState<FileState>({
     file: null,
@@ -136,6 +141,24 @@ export default function ImportPage() {
         setStoreError(null);
         const storesData = await api.stores.getStores();
         setStores(storesData);
+
+        // 各店舗に対して既存データがあるかチェック
+        const statusMap: Record<string, boolean> = {};
+        await Promise.all(
+          storesData.map(async (store) => {
+            try {
+              const response = await api.tips.getCalculationStatus(store.id);
+              statusMap[store.id] = response.success && !!response.status;
+            } catch (error) {
+              console.error(
+                `Failed to check data status for store ${store.id}:`,
+                error
+              );
+              statusMap[store.id] = false;
+            }
+          })
+        );
+        setStoreDataStatus(statusMap);
       } catch (error) {
         console.error("Failed to fetch stores:", error);
         setStoreError(
@@ -299,12 +322,7 @@ export default function ImportPage() {
   };
 
   const handleNext = async () => {
-    if (
-      !workingHoursFile.file ||
-      !tipFile.file ||
-      !cashTipData.data ||
-      cashTipData.data.length === 0
-    ) {
+    if (!workingHoursFile.file || !tipFile.file) {
       console.error("Required files/data are not selected");
       return;
     }
@@ -324,8 +342,20 @@ export default function ImportPage() {
         .filter((line) => line.trim() !== "");
       await api.tips.formatTipData(selectedStore, tipCsvLines);
 
-      // Cash Tipデータを整形してSupabaseに保存
-      await api.tips.formatCashTip(selectedStore, cashTipData.data);
+      // Cash Tipデータを整形してSupabaseに保存（存在する場合のみ）
+      if (
+        cashTipData.data &&
+        cashTipData.data.length > 0 &&
+        cashTipData.data.some(
+          (row) =>
+            row.Date &&
+            row.Date.trim() !== "" &&
+            row["Cash Tips"] &&
+            row["Cash Tips"].trim() !== ""
+        )
+      ) {
+        await api.tips.formatCashTip(selectedStore, cashTipData.data);
+      }
 
       // モック: 「Supabaseに保存した」という状態にする
       setWorkingHoursFile((prev) => ({
@@ -350,20 +380,11 @@ export default function ImportPage() {
   };
 
   // Nextボタンのアクティベート条件
-  // 3つすべて（working hours, tip, cash tip）が存在する場合にのみ有効化
+  // working hours と tip が存在する場合に有効化（cash tipはオプショナル）
   const isNextEnabled =
     selectedStore !== "" &&
     workingHoursFile.file !== null &&
-    tipFile.file !== null &&
-    cashTipData.data !== null &&
-    cashTipData.data.length > 0 &&
-    cashTipData.data.some(
-      (row) =>
-        row.Date &&
-        row.Date.trim() !== "" &&
-        row["Cash Tips"] &&
-        row["Cash Tips"].trim() !== ""
-    );
+    tipFile.file !== null;
 
   return (
     <div className="p-8">
@@ -376,25 +397,14 @@ export default function ImportPage() {
             <label className="text-xs font-medium text-gray-700">
               Select Store:
             </label>
-            <select
-              value={selectedStore}
-              onChange={(e) => setSelectedStore(e.target.value)}
-              disabled={isLoadingStores}
-              className="px-2 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs disabled:bg-gray-100 disabled:cursor-not-allowed"
-            >
-              <option value="">
-                {isLoadingStores
-                  ? "Loading stores..."
-                  : storeError
-                  ? "Error loading stores"
-                  : "-- Choose a store --"}
-              </option>
-              {stores.map((store) => (
-                <option key={store.id} value={store.id}>
-                  {store.name} ({store.abbreviation})
-                </option>
-              ))}
-            </select>
+            <StoreSelectDropdown
+              stores={stores}
+              selectedStore={selectedStore}
+              onStoreSelect={setSelectedStore}
+              storeDataStatus={storeDataStatus}
+              isLoading={isLoadingStores}
+              error={storeError}
+            />
           </div>
         </div>
 
@@ -426,32 +436,56 @@ export default function ImportPage() {
         )}
 
         {/* Working Hours CSV */}
-        <CsvFileUpload
-          title="Working Hours CSV"
-          onFileSelect={handleWorkingHoursFileSelect}
-          onFileRemove={handleWorkingHoursFileRemove}
-          onPreview={() => handlePreview("workingHours")}
-          selectedFile={workingHoursFile.file}
-          parsedData={workingHoursFile.data}
-        />
+        <div
+          className={
+            calculationStatus.status
+              ? "opacity-50 pointer-events-none relative"
+              : ""
+          }
+        >
+          <CsvFileUpload
+            title="Working Hours CSV"
+            onFileSelect={handleWorkingHoursFileSelect}
+            onFileRemove={handleWorkingHoursFileRemove}
+            onPreview={() => handlePreview("workingHours")}
+            selectedFile={workingHoursFile.file}
+            parsedData={workingHoursFile.data}
+          />
+        </div>
 
         {/* Tip CSV */}
-        <CsvFileUpload
-          title="Tip CSV"
-          onFileSelect={handleTipFileSelect}
-          onFileRemove={handleTipFileRemove}
-          onPreview={() => handlePreview("tip")}
-          selectedFile={tipFile.file}
-          parsedData={tipFile.data}
-        />
+        <div
+          className={
+            calculationStatus.status
+              ? "opacity-50 pointer-events-none relative"
+              : ""
+          }
+        >
+          <CsvFileUpload
+            title="Tip CSV"
+            onFileSelect={handleTipFileSelect}
+            onFileRemove={handleTipFileRemove}
+            onPreview={() => handlePreview("tip")}
+            selectedFile={tipFile.file}
+            parsedData={tipFile.data}
+          />
+        </div>
 
         {/* Cash Tip */}
-        <CsvTextPasteInput
-          title="Cash Tip"
-          onDataChange={handleCashTipDataChange}
-          onRemove={handleCashTipDataRemove}
-          parsedData={cashTipData.data}
-        />
+        <div
+          className={
+            calculationStatus.status
+              ? "opacity-50 pointer-events-none relative"
+              : ""
+          }
+        >
+          <CsvTextPasteInput
+            title="Cash Tip"
+            onDataChange={handleCashTipDataChange}
+            onRemove={handleCashTipDataRemove}
+            parsedData={cashTipData.data}
+          />
+        </div>
 
         {/* Nextボタン */}
         <div className="flex justify-end mt-8">

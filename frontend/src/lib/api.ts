@@ -378,6 +378,68 @@ export const api = {
         }
       );
     },
+    updateCalculationResult: (
+      id: string,
+      data: { tips?: number; cash_tips?: number }
+    ): Promise<{ success: boolean; message?: string }> => {
+      return apiRequest<{ success: boolean; message?: string }>(
+        `/api/tips/calculation-results/${id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(data),
+        }
+      );
+    },
+    getEmployeeTipStatus: (
+      calculationId: string
+    ): Promise<{
+      success: boolean;
+      data: Array<{
+        id: string;
+        calculation_id: string;
+        stores_id: string;
+        employee_name: string;
+        is_tipped: boolean;
+      }>;
+    }> => {
+      return apiRequest<{
+        success: boolean;
+        data: Array<{
+          id: string;
+          calculation_id: string;
+          stores_id: string;
+          employee_name: string;
+          is_tipped: boolean;
+        }>;
+      }>(`/api/tips/employee-tip-status?calculationId=${calculationId}`);
+    },
+    saveEmployeeTipStatus: (
+      calculationId: string,
+      employeeStatuses: Array<{
+        employee_name: string;
+        is_tipped: boolean;
+      }>
+    ): Promise<{ success: boolean }> => {
+      return apiRequest<{ success: boolean }>("/api/tips/employee-tip-status", {
+        method: "POST",
+        body: JSON.stringify({
+          calculationId,
+          employeeStatuses,
+        }),
+      });
+    },
+    deleteEmployeeTipStatus: (
+      calculationId: string,
+      employeeNames?: string[]
+    ): Promise<{ success: boolean }> => {
+      return apiRequest<{ success: boolean }>("/api/tips/employee-tip-status", {
+        method: "DELETE",
+        body: JSON.stringify({
+          calculationId,
+          employeeNames,
+        }),
+      });
+    },
   },
   userSettings: {
     getUserSettings: (): Promise<UserSettings> => {
