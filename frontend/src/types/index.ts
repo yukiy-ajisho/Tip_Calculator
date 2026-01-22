@@ -156,6 +156,14 @@ export interface GetCalculationStatusResponse {
   calculationId: string | null;
 }
 
+export interface GetCalculationStatusesResponse {
+  [storeId: string]: {
+    success: boolean;
+    status: "processing" | "completed" | null;
+    calculationId: string | null;
+  };
+}
+
 export interface UserSettings {
   id: string;
   user_id: string;

@@ -2793,6 +2793,102 @@ app.get("/api/tips/calculation-status", authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/stores/calculation-status
+// 全店舗の計算ステータスを一括取得（N+1問題を解決）
+app.get("/api/stores/calculation-status", authMiddleware, async (req, res) => {
+  try {
+    // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      throw new Error(
+        `Failed to fetch user stores: ${storeUsersError.message}`
+      );
+    }
+
+    if (!storeUsers || storeUsers.length === 0) {
+      return res.status(200).json({});
+    }
+
+    const storeIds = storeUsers.map((su) => su.store_id);
+
+    // 2. 全店舗のtip_calculationsを一括取得（status: 'completed' または 'processing'）
+    const { data: calculations, error: calcError } = await supabase
+      .from("tip_calculations")
+      .select("id, stores_id, status, created_at")
+      .in("stores_id", storeIds)
+      .in("status", ["completed", "processing"])
+      .order("created_at", { ascending: false });
+
+    if (calcError) {
+      console.error("Supabase select tip_calculations error:", calcError);
+      throw new Error(`Failed to fetch calculations: ${calcError.message}`);
+    }
+
+    // 3. 各店舗ごとにグループ化し、completedを優先、なければ最新のprocessingを返す
+    const statusMap = {};
+
+    // まず、各店舗に対してデフォルト値を設定
+    storeIds.forEach((storeId) => {
+      statusMap[storeId] = {
+        success: true,
+        status: null,
+        calculationId: null,
+      };
+    });
+
+    // completedを優先して処理
+    const completedByStore = new Map();
+    const processingByStore = new Map();
+
+    if (calculations) {
+      calculations.forEach((calc) => {
+        const storeId = calc.stores_id;
+        if (calc.status === "completed") {
+          // completedは1つだけ保持（最初に見つかったもの、または最新のもの）
+          if (!completedByStore.has(storeId)) {
+            completedByStore.set(storeId, calc);
+          }
+        } else if (calc.status === "processing") {
+          // processingは最新のものだけ保持（created_at降順でソート済み）
+          if (!processingByStore.has(storeId)) {
+            processingByStore.set(storeId, calc);
+          }
+        }
+      });
+    }
+
+    // 各店舗に対して、completedを優先、なければprocessingを設定
+    storeIds.forEach((storeId) => {
+      const completed = completedByStore.get(storeId);
+      const processing = processingByStore.get(storeId);
+
+      if (completed) {
+        statusMap[storeId] = {
+          success: true,
+          status: "completed",
+          calculationId: completed.id,
+        };
+      } else if (processing) {
+        statusMap[storeId] = {
+          success: true,
+          status: "processing",
+          calculationId: processing.id,
+        };
+      }
+    });
+
+    return res.status(200).json(statusMap);
+  } catch (error) {
+    console.error("Error fetching calculation statuses:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/tips/calculation/revert
 app.post("/api/tips/calculation/revert", authMiddleware, async (req, res) => {
   try {
