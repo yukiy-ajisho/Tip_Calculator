@@ -142,23 +142,24 @@ export default function ImportPage() {
         const storesData = await api.stores.getStores();
         setStores(storesData);
 
-        // 各店舗に対して既存データがあるかチェック
-        const statusMap: Record<string, boolean> = {};
-        await Promise.all(
-          storesData.map(async (store) => {
-            try {
-              const response = await api.tips.getCalculationStatus(store.id);
-              statusMap[store.id] = response.success && !!response.status;
-            } catch (error) {
-              console.error(
-                `Failed to check data status for store ${store.id}:`,
-                error
-              );
-              statusMap[store.id] = false;
-            }
-          })
-        );
-        setStoreDataStatus(statusMap);
+        // 全店舗の計算ステータスを一括取得
+        try {
+          const statusesResponse = await api.stores.getCalculationStatuses();
+          const statusMap: Record<string, boolean> = {};
+          storesData.forEach((store) => {
+            const status = statusesResponse[store.id];
+            statusMap[store.id] = status?.success && !!status?.status;
+          });
+          setStoreDataStatus(statusMap);
+        } catch (error) {
+          console.error("Failed to fetch calculation statuses:", error);
+          // エラーが発生した場合は全てfalseに設定
+          const statusMap: Record<string, boolean> = {};
+          storesData.forEach((store) => {
+            statusMap[store.id] = false;
+          });
+          setStoreDataStatus(statusMap);
+        }
       } catch (error) {
         console.error("Failed to fetch stores:", error);
         setStoreError(

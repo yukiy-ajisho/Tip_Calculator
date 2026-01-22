@@ -15,6 +15,7 @@ import {
   GetCalculationResultsResponse,
   GetRecordsResponse,
   GetCalculationStatusResponse,
+  GetCalculationStatusesResponse,
   UserSettings,
   GetUserSettingsResponse,
   UpdateUserSettingsResponse,
@@ -117,6 +118,11 @@ export const api = {
           method: "PUT",
           body: JSON.stringify(settings),
         }
+      );
+    },
+    getCalculationStatuses: (): Promise<GetCalculationStatusesResponse> => {
+      return apiRequest<GetCalculationStatusesResponse>(
+        "/api/stores/calculation-status"
       );
     },
   },
