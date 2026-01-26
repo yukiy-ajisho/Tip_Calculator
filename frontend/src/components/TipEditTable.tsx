@@ -29,6 +29,22 @@ function formatDate(dateString: string): string {
 }
 
 /**
+ * Get day of week from date string (YYYY-MM-DD format)
+ * Returns "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" or empty string if invalid
+ */
+function formatDayOfWeek(dateString: string | null): string {
+  if (!dateString || dateString.trim() === "") return "";
+
+  // Parse as YYYY-MM-DD format
+  const date = new Date(dateString + "T00:00:00");
+
+  if (!date || isNaN(date.getTime())) return "";
+
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return dayNames[date.getDay()];
+}
+
+/**
  * Convert time string (HH:MM:SS) to HH:MM format
  */
 function formatTime(timeString: string | null): string {
@@ -180,6 +196,9 @@ export function TipEditTable({
             <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
               Order Date
             </th>
+            <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+              Day
+            </th>
             <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
               Original Payment Time
             </th>
@@ -195,7 +214,7 @@ export function TipEditTable({
           {displayData.length === 0 ? (
             <tr>
               <td
-                colSpan={4}
+                colSpan={5}
                 className="px-3 py-2 text-center text-xs text-gray-500"
               >
                 No adjusted tips to display.
@@ -216,6 +235,12 @@ export function TipEditTable({
                 <tr key={recordId} className={rowBgColor}>
                   <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 border-r border-gray-200">
                     {record.order_date}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 border-r border-gray-200 text-center">
+                    {formatDayOfWeek(
+                      adjustedData.find((r) => r.id === recordId)?.order_date ||
+                        null
+                    )}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 border-r border-gray-200">
                     {formatDisplayTime(
