@@ -73,9 +73,12 @@ export function TipEditTable({
   const prevIsEditingRef = useRef(false);
   const originalDataRef = useRef<FormattedTipData[]>([]);
 
-  // Filter to show only adjusted tips (is_adjusted = true)
+  // Filter to show only adjusted tips (is_adjusted = true) with tips > 0
   const adjustedData = data
-    ? data.filter((record) => record.is_adjusted === true)
+    ? data.filter(
+        (record) =>
+          record.is_adjusted === true && parseFloat(record.tips || "0") > 0
+      )
     : [];
 
   // Convert to display format
@@ -132,6 +135,43 @@ export function TipEditTable({
     [data, onDataChange]
   );
 
+  // Enterキーで下の入力ボックスに移動するハンドラー
+  const handleEnterKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>, recordId: string) => {
+      if (event.key !== "Enter" || !isEditing) return;
+
+      event.preventDefault();
+
+      // 現在のレコードのインデックスを取得
+      const currentRecordIndex = displayData.findIndex(
+        (r) => r.id === recordId
+      );
+      if (currentRecordIndex === -1) return;
+
+      // 次の行を探す
+      for (let i = currentRecordIndex + 1; i < displayData.length; i++) {
+        const nextRecord = displayData[i];
+        if (!nextRecord) continue;
+
+        // 次の行のPayment Time入力フィールドを見つけてフォーカス
+        const nextInput = document.querySelector(
+          `input[data-record-id="${nextRecord.id}"][data-field="payment_time"]`
+        ) as HTMLInputElement;
+        if (nextInput) {
+          nextInput.focus();
+          // TimeInputの場合、最初のセグメントを選択
+          if (nextInput.setSelectionRange) {
+            nextInput.setSelectionRange(0, 0);
+          }
+          return;
+        }
+      }
+
+      // 次の編集可能なセルが見つからなかった場合は何もしない（最後の行）
+    },
+    [isEditing, displayData]
+  );
+
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
@@ -162,15 +202,18 @@ export function TipEditTable({
               </td>
             </tr>
           ) : (
-            displayData.map((record) => {
+            displayData.map((record, index) => {
               const recordId = record.id || "";
               const inputValue =
                 editingInputValues.get(recordId) !== undefined
                   ? editingInputValues.get(recordId) || ""
                   : record.payment_time;
 
+              // 交互色分け: 1行目（index 0）は白、2行目（index 1）はグレー
+              const rowBgColor = index % 2 === 0 ? "bg-white" : "bg-gray-50";
+
               return (
-                <tr key={recordId}>
+                <tr key={recordId} className={rowBgColor}>
                   <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 border-r border-gray-200">
                     {record.order_date}
                   </td>
@@ -186,7 +229,10 @@ export function TipEditTable({
                         key={`${recordId}-${isEditing}`}
                         value={inputValue}
                         onChange={(value) => handleTimeChange(recordId, value)}
+                        onKeyDown={(e) => handleEnterKeyDown(e, recordId)}
                         timeFormat={timeFormat}
+                        data-record-id={recordId}
+                        data-field="payment_time"
                       />
                     ) : (
                       formatDisplayTime(record.payment_time || null, timeFormat)
