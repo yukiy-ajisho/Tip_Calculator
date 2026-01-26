@@ -603,7 +603,7 @@ export function WorkingHoursEditTable({
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     // クリックアウトサイドで閉じる
-    useEffect(() => {
+  useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
         if (
           dropdownRef.current &&
@@ -757,8 +757,8 @@ export function WorkingHoursEditTable({
     };
 
     // 常にソートを適用（編集時もソート）
-    sortRecords(complete);
-    sortRecords(incomplete);
+      sortRecords(complete);
+      sortRecords(incomplete);
 
     return { completeRecords: complete, incompleteRecords: incomplete };
   }, [data]);
@@ -1099,7 +1099,7 @@ export function WorkingHoursEditTable({
             </span>
           )}
         </td>
-        {isEditing && onDeleteRecord && (
+          {isEditing && onDeleteRecord && (
           <td className="px-3 py-2 whitespace-nowrap text-xs">
             <button
               onClick={() => onDeleteRecord(record.id)}
@@ -1108,7 +1108,7 @@ export function WorkingHoursEditTable({
             >
               <Trash2 className="w-4 h-4" />
             </button>
-          </td>
+        </td>
         )}
       </tr>
     );

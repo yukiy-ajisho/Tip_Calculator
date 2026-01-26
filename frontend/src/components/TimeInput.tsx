@@ -374,7 +374,20 @@ export function TimeInput({
       const rawValue = curSegment.value
         ? parseInt(curSegment.value).toString()
         : "";
-      let newValue = rawValue.length < length ? rawValue + num : num;
+      // For minute segment, always replace if current value is 2 digits (e.g., "00")
+      // For hour segment, append if current value is less than 2 digits
+      let newValue: string;
+      if (
+        curSegment.type === "minute" &&
+        curSegment.value &&
+        curSegment.value.length === length
+      ) {
+        // Minute segment: replace if already 2 digits (e.g., "00")
+        newValue = num;
+      } else {
+        // Hour segment or minute segment with less than 2 digits: append
+        newValue = rawValue.length < length ? rawValue + num : num;
+      }
 
       // Validate and adjust based on segment type
       const numValue = parseInt(newValue, 10);
@@ -384,17 +397,19 @@ export function TimeInput({
           // Allow single digits 1-9 (will be padded to 01-09)
           // Allow 10, 11, 12
           // Reject if > 12
-          // Also reject if first digit is 1 and second digit would make it > 12
           if (newValue.length === 1) {
             // Single digit: allow 1-9
             if (numValue < 1 || numValue > 9) {
               newValue = num;
             }
           } else if (newValue.length === 2) {
-            // Two digits: must be 10, 11, or 12
-            if (numValue < 10 || numValue > 12) {
+            // Two digits: must be 01-12
+            // Keep 2-digit format for 01-09, 10, 11, 12
+            if (numValue < 1 || numValue > 12) {
+              // Invalid value: replace with single digit
               newValue = num;
             }
+            // Valid 2-digit value (01-12): keep as is, don't replace with single digit
           }
         } else {
           // Hour: 0-23 for 24-hour format
@@ -451,16 +466,18 @@ export function TimeInput({
     }
   }, [segments, curSegment, onSegmentChange]);
 
-  const onAmpmToggle = useCallback(() => {
-    if (!curSegment || curSegment.type !== "ampm") return;
+  const setAmpm = useCallback(
+    (ampm: "AM" | "PM") => {
+      if (!curSegment || curSegment.type !== "ampm") return;
 
-    const newAmpm = curSegment.value === "AM" ? "PM" : "AM";
-    const updatedSegments = segments.map((s) =>
-      s.index === curSegment.index ? { ...curSegment, value: newAmpm } : s
-    );
-    setSegments(updatedSegments);
-    setSelection(inputRef, curSegment);
-  }, [segments, curSegment]);
+      const updatedSegments = segments.map((s) =>
+        s.index === curSegment.index ? { ...curSegment, value: ampm } : s
+      );
+      setSegments(updatedSegments);
+      setSelection(inputRef, curSegment);
+    },
+    [segments, curSegment]
+  );
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -480,10 +497,17 @@ export function TimeInput({
           onSegmentChange(key === "ArrowRight" ? "right" : "left");
           event.preventDefault();
           break;
-        case "ArrowDown":
-          // Toggle AM/PM in 12-hour format
+        case "ArrowUp":
+          // Set AM in 12-hour format
           if (timeFormat === "12h" && curSegment?.type === "ampm") {
-            onAmpmToggle();
+            setAmpm("AM");
+            event.preventDefault();
+          }
+          break;
+        case "ArrowDown":
+          // Set PM in 12-hour format
+          if (timeFormat === "12h" && curSegment?.type === "ampm") {
+            setAmpm("PM");
             event.preventDefault();
           }
           break;
@@ -508,7 +532,7 @@ export function TimeInput({
       onSegmentChange,
       onSegmentValueRemove,
       onSegmentNumberValueChange,
-      onAmpmToggle,
+      setAmpm,
       timeFormat,
       onKeyDown,
     ]

@@ -331,34 +331,34 @@ export default function EditPage() {
         return;
       }
 
-      // storeIdが存在しない場合のエラーハンドリング
-      if (!storeId) {
-        alert("Store ID is missing. Please go back to import page.");
-        router.push("/tip/import");
-        return;
+    // storeIdが存在しない場合のエラーハンドリング
+    if (!storeId) {
+      alert("Store ID is missing. Please go back to import page.");
+      router.push("/tip/import");
+      return;
+    }
+
+    try {
+      // ローディング状態を設定
+      setIsCalculating(true);
+
+      // APIを呼び出して計算を実行
+      const response = await api.tips.calculate(storeId);
+
+      // 成功時の処理
+      if (response.success) {
+        // 計算結果ページにリダイレクト
+        router.push(`/tip/calculate?calculationId=${response.calculationId}`);
       }
-
-      try {
-        // ローディング状態を設定
-        setIsCalculating(true);
-
-        // APIを呼び出して計算を実行
-        const response = await api.tips.calculate(storeId);
-
-        // 成功時の処理
-        if (response.success) {
-          // 計算結果ページにリダイレクト
-          router.push(`/tip/calculate?calculationId=${response.calculationId}`);
-        }
-      } catch (error) {
-        console.error("Failed to calculate tips:", error);
-        alert(
-          error instanceof Error
-            ? error.message
-            : "Failed to calculate tips. Please try again."
-        );
-      } finally {
-        setIsCalculating(false);
+    } catch (error) {
+      console.error("Failed to calculate tips:", error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to calculate tips. Please try again."
+      );
+    } finally {
+      setIsCalculating(false);
       }
     }
   };
@@ -544,11 +544,11 @@ export default function EditPage() {
                     Cash Tips
                   </h3>
                   {cashTipData.length === 0 ? (
-                    <p className="text-sm text-gray-500">
-                      No cash tip data available. Please import a file first.
-                    </p>
-                  ) : (
-                    <CashTipEditTable data={cashTipData} />
+              <p className="text-sm text-gray-500">
+                No cash tip data available. Please import a file first.
+              </p>
+            ) : (
+              <CashTipEditTable data={cashTipData} />
                   )}
                 </div>
 
