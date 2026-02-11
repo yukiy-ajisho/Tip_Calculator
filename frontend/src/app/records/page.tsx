@@ -12,7 +12,7 @@ export default function RecordsPage() {
   // タブ切り替えの状態
   const [activeTab, setActiveTab] = useState<
     "tipResultCombine" | "storeBreakdown"
-  >("tipResultCombine");
+  >("storeBreakdown");
 
   // データ取得の状態
   const [records, setRecords] = useState<RecordItem[]>([]);
@@ -810,16 +810,6 @@ export default function RecordsPage() {
         <div className="flex justify-between items-center mb-6">
           <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
             <button
-              onClick={() => setActiveTab("tipResultCombine")}
-              className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                activeTab === "tipResultCombine"
-                  ? "bg-white text-blue-700 shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              Tip Result Combine
-            </button>
-            <button
               onClick={() => setActiveTab("storeBreakdown")}
               className={`px-4 py-2 rounded-md font-medium transition-colors ${
                 activeTab === "storeBreakdown"
@@ -828,6 +818,16 @@ export default function RecordsPage() {
               }`}
             >
               Store Breakdown
+            </button>
+            <button
+              onClick={() => setActiveTab("tipResultCombine")}
+              className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                activeTab === "tipResultCombine"
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              Tip Result Combine
             </button>
           </div>
           {/* Editボタン（Tip Result CombineまたはStore Breakdown） */}
