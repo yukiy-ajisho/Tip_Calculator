@@ -9,6 +9,7 @@ import {
   EmployeeTipStatusTable,
   EmployeeTipStatusTableRef,
 } from "@/components/EmployeeTipStatusTable";
+import { useTipNavigation } from "@/contexts/TipNavigationContext";
 import { api } from "@/lib/api";
 import {
   FormattedWorkingHours,
@@ -44,7 +45,7 @@ export default function EditPage() {
     FormattedWorkingHours[]
   >([]);
   const [deletedRecordIds, setDeletedRecordIds] = useState<string[]>([]);
-  const [isCalculating, setIsCalculating] = useState(false);
+  const { isNavigating, setIsNavigating } = useTipNavigation();
 
   // Tip Data の編集モード状態
   const [isEditingTips, setIsEditingTips] = useState(false);
@@ -59,6 +60,12 @@ export default function EditPage() {
 
   // Role mappings
   const [roleMappings, setRoleMappings] = useState<RoleMapping[]>([]);
+
+  // ページマウント時にisNavigatingをリセット
+  useEffect(() => {
+    setIsNavigating(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ページ読み込み時にSupabaseからデータ取得
   useEffect(() => {
@@ -145,12 +152,19 @@ export default function EditPage() {
     // タブに応じて前のタブに戻る、またはimportページに戻る
     if (activeTab === "cashTip") {
       // Cash Tipsタブ → Outside Range Tipsタブに戻る
+      setIsNavigating(true);
       setActiveTab("tip");
+      // タブ切り替えのラグを考慮して少し遅延
+      setTimeout(() => setIsNavigating(false), 100);
     } else if (activeTab === "tip") {
       // Outside Range Tipsタブ → Incomplete Recordsタブに戻る
+      setIsNavigating(true);
       setActiveTab("workingHours");
+      // タブ切り替えのラグを考慮して少し遅延
+      setTimeout(() => setIsNavigating(false), 100);
     } else if (activeTab === "workingHours") {
       // Incomplete Recordsタブ → importページに戻る（データは削除しない）
+      setIsNavigating(true);
       // 直接ナビゲーションのフラグを設定（自動リダイレクトを防ぐため）
       const SESSION_FLAG_KEY = "directNavigationFromEdit";
       sessionStorage.setItem(SESSION_FLAG_KEY, "true");
@@ -317,10 +331,16 @@ export default function EditPage() {
     // タブに応じて次のタブに移動、または計算を実行
     if (activeTab === "workingHours") {
       // Incomplete Recordsタブ → Outside Range Tipsタブに移動
+      setIsNavigating(true);
       setActiveTab("tip");
+      // タブ切り替えのラグを考慮して少し遅延
+      setTimeout(() => setIsNavigating(false), 100);
     } else if (activeTab === "tip") {
       // Outside Range Tipsタブ → Cash Tipsタブに移動
+      setIsNavigating(true);
       setActiveTab("cashTip");
+      // タブ切り替えのラグを考慮して少し遅延
+      setTimeout(() => setIsNavigating(false), 100);
     } else if (activeTab === "cashTip") {
       // Cash Tipsタブ → 計算を実行してcalculateページに遷移
       // 確認ダイアログを表示
@@ -334,13 +354,14 @@ export default function EditPage() {
       // storeIdが存在しない場合のエラーハンドリング
       if (!storeId) {
         alert("Store ID is missing. Please go back to import page.");
+        setIsNavigating(true);
         router.push("/tip/import");
         return;
       }
 
       try {
         // ローディング状態を設定
-        setIsCalculating(true);
+        setIsNavigating(true);
 
         // APIを呼び出して計算を実行
         const response = await api.tips.calculate(storeId);
@@ -349,23 +370,25 @@ export default function EditPage() {
         if (response.success) {
           // 計算結果ページにリダイレクト
           router.push(`/tip/calculate?calculationId=${response.calculationId}`);
+        } else {
+          setIsNavigating(false);
+          alert("Failed to calculate tips. Please try again.");
         }
       } catch (error) {
         console.error("Failed to calculate tips:", error);
+        setIsNavigating(false);
         alert(
           error instanceof Error
             ? error.message
             : "Failed to calculate tips. Please try again."
         );
-      } finally {
-        setIsCalculating(false);
       }
     }
   };
 
   return (
     <div className="p-8">
-      <div className="w-full">
+      <div className="w-full relative">
         {/* タブボタン */}
         <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6 w-fit">
           <button
@@ -574,13 +597,13 @@ export default function EditPage() {
             <button
               onClick={handleBack}
               disabled={
-                isCalculating ||
+                isNavigating ||
                 isEditingWorkingHours ||
                 isEditingTips ||
                 isEditingEmployeeTipStatus
               }
               className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-                isCalculating ||
+                isNavigating ||
                 isEditingWorkingHours ||
                 isEditingTips ||
                 isEditingEmployeeTipStatus
@@ -588,7 +611,7 @@ export default function EditPage() {
                   : "bg-gray-500 text-white hover:bg-gray-600"
               }`}
             >
-              Back
+              {isNavigating ? "Loading..." : "Back"}
             </button>
             {(isEditingWorkingHours ||
               isEditingTips ||
@@ -603,13 +626,13 @@ export default function EditPage() {
             <button
               onClick={handleNext}
               disabled={
-                isCalculating ||
+                isNavigating ||
                 isEditingWorkingHours ||
                 isEditingTips ||
                 isEditingEmployeeTipStatus
               }
               className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-                isCalculating ||
+                isNavigating ||
                 isEditingWorkingHours ||
                 isEditingTips ||
                 isEditingEmployeeTipStatus
@@ -617,8 +640,8 @@ export default function EditPage() {
                   : "bg-blue-500 text-white hover:bg-blue-600"
               }`}
             >
-              {isCalculating
-                ? "Calculating..."
+              {isNavigating
+                ? "Loading..."
                 : activeTab === "cashTip"
                 ? "Calculate"
                 : "Next"}

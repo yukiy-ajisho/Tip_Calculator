@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import CalculationSuccessModal from "@/components/CalculationSuccessModal";
+import { useTipNavigation } from "@/contexts/TipNavigationContext";
 import { api } from "@/lib/api";
 import { TipCalculationResult, CalculationInfo } from "@/types";
 
@@ -15,8 +16,13 @@ export default function CalculatePage() {
   const [error, setError] = useState<string | null>(null);
   const [calculation, setCalculation] = useState<CalculationInfo | null>(null);
   const [results, setResults] = useState<TipCalculationResult[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isReverting, setIsReverting] = useState(false);
+  const { isNavigating, setIsNavigating } = useTipNavigation();
+
+  // ページマウント時にisNavigatingをリセット
+  useEffect(() => {
+    setIsNavigating(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // calculationIdがない場合、importページにリダイレクト
   useEffect(() => {
@@ -68,12 +74,13 @@ export default function CalculatePage() {
 
   const handleBack = async () => {
     if (!calculationId) {
+      setIsNavigating(true);
       router.push("/tip/import");
       return;
     }
 
     try {
-      setIsReverting(true);
+      setIsNavigating(true);
 
       const response = await api.tips.revertCalculation(calculationId);
 
@@ -84,13 +91,12 @@ export default function CalculatePage() {
       }
     } catch (error) {
       console.error("Failed to revert calculation:", error);
+      setIsNavigating(false);
       alert(
         error instanceof Error
           ? error.message
           : "Failed to revert calculation. Please try again."
       );
-    } finally {
-      setIsReverting(false);
     }
   };
 
@@ -101,7 +107,7 @@ export default function CalculatePage() {
     }
 
     try {
-      setIsSaving(true);
+      setIsNavigating(true);
 
       await api.tips.deleteFormattedData(calculationId);
 
@@ -109,16 +115,16 @@ export default function CalculatePage() {
       const STORAGE_KEY = "lastTipSession";
       localStorage.removeItem(STORAGE_KEY);
 
+      setIsNavigating(false);
       setIsSuccessModalOpen(true);
     } catch (error) {
       console.error("Failed to save tips:", error);
+      setIsNavigating(false);
       alert(
         error instanceof Error
           ? error.message
           : "Failed to save tips. Please try again."
       );
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -186,7 +192,7 @@ export default function CalculatePage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto relative">
         {/* Store と Period の表示 */}
         <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm mb-6">
           <div className="flex items-center gap-6">
@@ -301,25 +307,25 @@ export default function CalculatePage() {
         <div className="flex justify-between mt-8">
           <button
             onClick={handleBack}
-            disabled={isReverting}
+            disabled={isNavigating}
             className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-              isReverting
+              isNavigating
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                 : "bg-gray-500 text-white hover:bg-gray-600"
             }`}
           >
-            {isReverting ? "Reverting..." : "Back"}
+            {isNavigating ? "Loading..." : "Back"}
           </button>
           <button
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isNavigating}
             className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-              isSaving
+              isNavigating
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                 : "bg-blue-500 text-white hover:bg-blue-600"
             }`}
           >
-            {isSaving ? "Saving..." : "Save Tips"}
+            {isNavigating ? "Loading..." : "Save Tips"}
           </button>
         </div>
       </div>
