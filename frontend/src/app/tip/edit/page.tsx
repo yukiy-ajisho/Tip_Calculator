@@ -331,34 +331,34 @@ export default function EditPage() {
         return;
       }
 
-    // storeIdが存在しない場合のエラーハンドリング
-    if (!storeId) {
-      alert("Store ID is missing. Please go back to import page.");
-      router.push("/tip/import");
-      return;
-    }
-
-    try {
-      // ローディング状態を設定
-      setIsCalculating(true);
-
-      // APIを呼び出して計算を実行
-      const response = await api.tips.calculate(storeId);
-
-      // 成功時の処理
-      if (response.success) {
-        // 計算結果ページにリダイレクト
-        router.push(`/tip/calculate?calculationId=${response.calculationId}`);
+      // storeIdが存在しない場合のエラーハンドリング
+      if (!storeId) {
+        alert("Store ID is missing. Please go back to import page.");
+        router.push("/tip/import");
+        return;
       }
-    } catch (error) {
-      console.error("Failed to calculate tips:", error);
-      alert(
-        error instanceof Error
-          ? error.message
-          : "Failed to calculate tips. Please try again."
-      );
-    } finally {
-      setIsCalculating(false);
+
+      try {
+        // ローディング状態を設定
+        setIsCalculating(true);
+
+        // APIを呼び出して計算を実行
+        const response = await api.tips.calculate(storeId);
+
+        // 成功時の処理
+        if (response.success) {
+          // 計算結果ページにリダイレクト
+          router.push(`/tip/calculate?calculationId=${response.calculationId}`);
+        }
+      } catch (error) {
+        console.error("Failed to calculate tips:", error);
+        alert(
+          error instanceof Error
+            ? error.message
+            : "Failed to calculate tips. Please try again."
+        );
+      } finally {
+        setIsCalculating(false);
       }
     }
   };
@@ -544,11 +544,11 @@ export default function EditPage() {
                     Cash Tips
                   </h3>
                   {cashTipData.length === 0 ? (
-              <p className="text-sm text-gray-500">
-                No cash tip data available. Please import a file first.
-              </p>
-            ) : (
-              <CashTipEditTable data={cashTipData} />
+                    <p className="text-sm text-gray-500">
+                      No cash tip data available. Please import a file first.
+                    </p>
+                  ) : (
+                    <CashTipEditTable data={cashTipData} />
                   )}
                 </div>
 
@@ -570,27 +570,68 @@ export default function EditPage() {
 
         {/* Back/Nextボタン */}
         <div className="flex justify-between mt-8">
-          <button
-            onClick={handleBack}
-            className="px-4 py-1.5 text-sm bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
-          >
-            Back
-          </button>
-          <button
-            onClick={handleNext}
-            disabled={isCalculating}
-            className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-              isCalculating
-                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                : "bg-blue-500 text-white hover:bg-blue-600"
-            }`}
-          >
-            {isCalculating
-              ? "Calculating..."
-              : activeTab === "cashTip"
-              ? "Calculate"
-              : "Next"}
-          </button>
+          <div className="relative group">
+            <button
+              onClick={handleBack}
+              disabled={
+                isCalculating ||
+                isEditingWorkingHours ||
+                isEditingTips ||
+                isEditingEmployeeTipStatus
+              }
+              className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+                isCalculating ||
+                isEditingWorkingHours ||
+                isEditingTips ||
+                isEditingEmployeeTipStatus
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-gray-500 text-white hover:bg-gray-600"
+              }`}
+            >
+              Back
+            </button>
+            {(isEditingWorkingHours ||
+              isEditingTips ||
+              isEditingEmployeeTipStatus) && (
+              <div className="absolute bottom-full left-full ml-2 mb-2 px-3 py-2 bg-gray-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-10">
+                Please save or cancel your edits before proceeding.
+                <div className="absolute top-full left-0 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+              </div>
+            )}
+          </div>
+          <div className="relative group">
+            <button
+              onClick={handleNext}
+              disabled={
+                isCalculating ||
+                isEditingWorkingHours ||
+                isEditingTips ||
+                isEditingEmployeeTipStatus
+              }
+              className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+                isCalculating ||
+                isEditingWorkingHours ||
+                isEditingTips ||
+                isEditingEmployeeTipStatus
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-blue-500 text-white hover:bg-blue-600"
+              }`}
+            >
+              {isCalculating
+                ? "Calculating..."
+                : activeTab === "cashTip"
+                ? "Calculate"
+                : "Next"}
+            </button>
+            {(isEditingWorkingHours ||
+              isEditingTips ||
+              isEditingEmployeeTipStatus) && (
+              <div className="absolute bottom-full right-full mr-2 mb-2 px-3 py-2 bg-gray-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-10">
+                Please save or cancel your edits before proceeding.
+                <div className="absolute top-full right-0 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
