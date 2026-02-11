@@ -389,41 +389,112 @@ export default function EditPage() {
   return (
     <div className="p-8">
       <div className="w-full relative">
-        {/* タブボタン */}
-        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6 w-fit">
-          <button
-            onClick={() => setActiveTab("workingHours")}
-            className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-              activeTab === "workingHours"
-                ? "bg-white text-blue-700 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            Incomplete Records
-          </button>
-          <button
-            onClick={() => setActiveTab("tip")}
-            className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-              activeTab === "tip"
-                ? "bg-white text-blue-700 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            Outside Range Tips
-          </button>
-          <button
-            onClick={() => setActiveTab("cashTip")}
-            className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-              activeTab === "cashTip"
-                ? "bg-white text-blue-700 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            Cash Tips
-          </button>
+        {/* 固定ヘッダーエリア */}
+        <div className="sticky top-0 z-10 bg-gray-50 -mx-8 px-8 py-4 mb-6">
+          {/* タブボタン */}
+          <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-4 w-fit">
+            <button
+              onClick={() => setActiveTab("workingHours")}
+              className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                activeTab === "workingHours"
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              Incomplete Records
+            </button>
+            <button
+              onClick={() => setActiveTab("tip")}
+              className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                activeTab === "tip"
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              Outside Range Tips
+            </button>
+            <button
+              onClick={() => setActiveTab("cashTip")}
+              className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                activeTab === "cashTip"
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              Cash Tips
+            </button>
+          </div>
+
+          {/* Back/Nextボタン */}
+          <div className="flex justify-between">
+            <div className="relative group">
+              <button
+                onClick={handleBack}
+                disabled={
+                  isNavigating ||
+                  isEditingWorkingHours ||
+                  isEditingTips ||
+                  isEditingEmployeeTipStatus
+                }
+                className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+                  isNavigating ||
+                  isEditingWorkingHours ||
+                  isEditingTips ||
+                  isEditingEmployeeTipStatus
+                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    : "bg-gray-500 text-white hover:bg-gray-600"
+                }`}
+              >
+                {isNavigating ? "Loading..." : "Back"}
+              </button>
+              {(isEditingWorkingHours ||
+                isEditingTips ||
+                isEditingEmployeeTipStatus) && (
+                <div className="absolute bottom-full left-full ml-2 mb-2 px-3 py-2 bg-gray-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-10">
+                  Please save or cancel your edits before proceeding.
+                  <div className="absolute top-full left-0 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+                </div>
+              )}
+            </div>
+            <div className="relative group">
+              <button
+                onClick={handleNext}
+                disabled={
+                  isNavigating ||
+                  isEditingWorkingHours ||
+                  isEditingTips ||
+                  isEditingEmployeeTipStatus
+                }
+                className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+                  isNavigating ||
+                  isEditingWorkingHours ||
+                  isEditingTips ||
+                  isEditingEmployeeTipStatus
+                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    : "bg-blue-500 text-white hover:bg-blue-600"
+                }`}
+              >
+                {isNavigating
+                  ? "Loading..."
+                  : activeTab === "cashTip"
+                  ? "Calculate"
+                  : "Next"}
+              </button>
+              {(isEditingWorkingHours ||
+                isEditingTips ||
+                isEditingEmployeeTipStatus) && (
+                <div className="absolute bottom-full right-full mr-2 mb-2 px-3 py-2 bg-gray-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-10">
+                  Please save or cancel your edits before proceeding.
+                  <div className="absolute top-full right-0 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Working Hours CSV タブのコンテンツ */}
+        {/* コンテンツエリア */}
+        <div>
+          {/* Working Hours CSV タブのコンテンツ */}
         {activeTab === "workingHours" && (
           <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
             {/* Edit/Save/Cancelボタン */}
@@ -590,71 +661,6 @@ export default function EditPage() {
             )}
           </div>
         )}
-
-        {/* Back/Nextボタン */}
-        <div className="flex justify-between mt-8">
-          <div className="relative group">
-            <button
-              onClick={handleBack}
-              disabled={
-                isNavigating ||
-                isEditingWorkingHours ||
-                isEditingTips ||
-                isEditingEmployeeTipStatus
-              }
-              className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-                isNavigating ||
-                isEditingWorkingHours ||
-                isEditingTips ||
-                isEditingEmployeeTipStatus
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-gray-500 text-white hover:bg-gray-600"
-              }`}
-            >
-              {isNavigating ? "Loading..." : "Back"}
-            </button>
-            {(isEditingWorkingHours ||
-              isEditingTips ||
-              isEditingEmployeeTipStatus) && (
-              <div className="absolute bottom-full left-full ml-2 mb-2 px-3 py-2 bg-gray-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-10">
-                Please save or cancel your edits before proceeding.
-                <div className="absolute top-full left-0 -mt-1 border-4 border-transparent border-t-gray-800"></div>
-              </div>
-            )}
-          </div>
-          <div className="relative group">
-            <button
-              onClick={handleNext}
-              disabled={
-                isNavigating ||
-                isEditingWorkingHours ||
-                isEditingTips ||
-                isEditingEmployeeTipStatus
-              }
-              className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-                isNavigating ||
-                isEditingWorkingHours ||
-                isEditingTips ||
-                isEditingEmployeeTipStatus
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-blue-500 text-white hover:bg-blue-600"
-              }`}
-            >
-              {isNavigating
-                ? "Loading..."
-                : activeTab === "cashTip"
-                ? "Calculate"
-                : "Next"}
-            </button>
-            {(isEditingWorkingHours ||
-              isEditingTips ||
-              isEditingEmployeeTipStatus) && (
-              <div className="absolute bottom-full right-full mr-2 mb-2 px-3 py-2 bg-gray-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-10">
-                Please save or cancel your edits before proceeding.
-                <div className="absolute top-full right-0 -mt-1 border-4 border-transparent border-t-gray-800"></div>
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>

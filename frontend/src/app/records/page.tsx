@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { api } from "@/lib/api";
 import { RecordItem } from "@/types";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
 
 export default function RecordsPage() {
   // ユーザー設定を取得
@@ -793,18 +794,10 @@ export default function RecordsPage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="p-8">
-        <div className="max-w-7xl mx-auto">
-          <p className="text-sm text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-8">
+    <div className="p-8 relative h-full">
+      {/* Loading Overlay */}
+      {isLoading && <LoadingOverlay />}
       <div className="max-w-7xl mx-auto">
         {/* タブボタンとEditボタン */}
         <div className="flex justify-between items-center mb-6">
