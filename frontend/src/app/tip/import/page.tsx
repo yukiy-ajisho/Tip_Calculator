@@ -323,6 +323,11 @@ export default function ImportPage() {
       setCalculationStatus({ status: null, calculationId: null });
       // localStorageをクリア
       localStorage.removeItem(STORAGE_KEY);
+      // storeDataStatusを更新してUIを即座に反映
+      setStoreDataStatus((prev) => ({
+        ...prev,
+        [selectedStore]: false,
+      }));
     } catch (error) {
       console.error("Failed to delete existing data:", error);
       alert("Failed to delete existing data. Please try again.");
