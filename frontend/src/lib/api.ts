@@ -252,12 +252,18 @@ export const api = {
       });
     },
     getFormattedTipData: (
-      storeId?: string
-    ): Promise<GetFormattedTipDataResponse> => {
-      const url = storeId
+      storeId?: string,
+      options?: { countOnly?: boolean }
+    ): Promise<GetFormattedTipDataResponse | { success: boolean; count: number }> => {
+      let url = storeId
         ? `/api/tips/formatted-tip-data?storeId=${storeId}`
         : "/api/tips/formatted-tip-data";
-      return apiRequest<GetFormattedTipDataResponse>(url);
+      
+      if (options?.countOnly) {
+        url += storeId ? "&count_only=true" : "?count_only=true";
+      }
+      
+      return apiRequest<GetFormattedTipDataResponse | { success: boolean; count: number }>(url);
     },
     updateFormattedTipData: (
       id: string,

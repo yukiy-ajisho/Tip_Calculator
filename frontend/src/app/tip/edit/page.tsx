@@ -58,6 +58,10 @@ export default function EditPage() {
     useState(false);
   const employeeTipStatusTableRef = useRef<EmployeeTipStatusTableRef>(null);
 
+  // Outside Range Tips タブで空のときに1回だけ再取得する用
+  const [isRefetchingTip, setIsRefetchingTip] = useState(false);
+  const hasRefetchedForEmptyTipRef = useRef(false);
+
   // Role mappings
   const [roleMappings, setRoleMappings] = useState<RoleMapping[]>([]);
 
@@ -83,6 +87,16 @@ export default function EditPage() {
       try {
         setIsLoading(true);
         setError(null);
+        hasRefetchedForEmptyTipRef.current = false;
+
+        // まず Tip CSV がアップロードされているかチェック（全データを対象にカウント）
+        const tipCountResult = await api.tips.getFormattedTipData(storeId, { countOnly: true });
+        
+        // 型ガードで count プロパティの存在をチェック
+        if (!tipCountResult.success || !('count' in tipCountResult) || tipCountResult.count === 0) {
+          router.push("/tip/import");
+          return;
+        }
 
         // calculationIdを取得
         const statusResult = await api.tips.getCalculationStatus(storeId);
@@ -90,7 +104,7 @@ export default function EditPage() {
           setCalculationId(statusResult.calculationId);
         }
 
-        // 指定された店舗IDでデータを取得
+        // 指定された店舗IDでデータを取得（tipResult は is_adjusted: true のみ）
         const [workingHoursResult, tipResult, cashTipResult, roleMappingsData] =
           await Promise.all([
             api.tips.getFormattedWorkingHours(storeId),
@@ -99,14 +113,13 @@ export default function EditPage() {
             api.roleMappings.getRoleMappings(storeId),
           ]);
 
-        // 一つでも欠けていたら /tip/import にリダイレクト
+        // Working Hours または API 呼び出しが失敗したら /tip/import にリダイレクト
         if (
           !workingHoursResult.success ||
           workingHoursResult.data.length === 0 ||
           !tipResult.success ||
-          tipResult.data.length === 0 ||
-          !cashTipResult.success ||
-          cashTipResult.data.length === 0
+          !("data" in tipResult) ||
+          !cashTipResult.success
         ) {
           router.push("/tip/import");
           return;
@@ -147,6 +160,39 @@ export default function EditPage() {
 
     fetchData();
   }, [router, storeId]);
+
+  // Outside Range Tips タブ表示時、tipData が空なら1回だけ再取得（RPC 完了の遅れ対策）
+  useEffect(() => {
+    if (
+      activeTab !== "tip" ||
+      tipData.length > 0 ||
+      !storeId ||
+      isLoading
+    ) {
+      return;
+    }
+    if (hasRefetchedForEmptyTipRef.current) return;
+    hasRefetchedForEmptyTipRef.current = true;
+
+    let cancelled = false;
+    const refetch = async () => {
+      setIsRefetchingTip(true);
+      try {
+        const result = await api.tips.getFormattedTipData(storeId);
+        if (cancelled) return;
+        if (result.success && "data" in result) {
+          setTipData(result.data);
+          setOriginalTipData(JSON.parse(JSON.stringify(result.data)));
+        }
+      } finally {
+        if (!cancelled) setIsRefetchingTip(false);
+      }
+    };
+    refetch();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, storeId, tipData.length, isLoading]);
 
   const handleBack = async () => {
     // タブに応じて前のタブに戻る、またはimportページに戻る
@@ -578,7 +624,7 @@ export default function EditPage() {
               )}
             </div>
 
-            {isLoading ? (
+            {isLoading || isRefetchingTip ? (
               <p className="text-sm text-gray-600">Loading tip data...</p>
             ) : error ? (
               <p className="text-sm text-red-600">Error: {error}</p>
