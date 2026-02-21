@@ -6,6 +6,7 @@ import { CsvFileUpload } from "@/components/CsvFileUpload";
 import { CsvTextPasteInput } from "@/components/CsvTextPasteInput";
 import { PreviewModal } from "@/components/PreviewModal";
 import { StoreSelectDropdown } from "@/components/StoreSelectDropdown";
+import { useTipNavigation } from "@/contexts/TipNavigationContext";
 import { api } from "@/lib/api";
 import { Store } from "@/types";
 
@@ -26,6 +27,7 @@ export default function ImportPage() {
     calculationId: string | null;
   }>({ status: null, calculationId: null });
   const [isCheckingData, setIsCheckingData] = useState<boolean>(false);
+  const { isNavigating, setIsNavigating } = useTipNavigation();
   // 各店舗の既存データ状態を管理
   const [storeDataStatus, setStoreDataStatus] = useState<
     Record<string, boolean>
@@ -67,6 +69,12 @@ export default function ImportPage() {
     lastPage: "edit" | "calculate";
     calculationId?: string;
   }
+
+  // ページマウント時にisNavigatingをリセット
+  useEffect(() => {
+    setIsNavigating(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ページ読み込み時にsessionStorageとlocalStorageをチェック
   useEffect(() => {
@@ -315,6 +323,11 @@ export default function ImportPage() {
       setCalculationStatus({ status: null, calculationId: null });
       // localStorageをクリア
       localStorage.removeItem(STORAGE_KEY);
+      // storeDataStatusを更新してUIを即座に反映
+      setStoreDataStatus((prev) => ({
+        ...prev,
+        [selectedStore]: false,
+      }));
     } catch (error) {
       console.error("Failed to delete existing data:", error);
       alert("Failed to delete existing data. Please try again.");
@@ -329,6 +342,8 @@ export default function ImportPage() {
     }
 
     try {
+      setIsNavigating(true);
+
       // Working Hours CSVを整形してSupabaseに保存
       const workingHoursCsvText = await workingHoursFile.file.text();
       const workingHoursCsvLines = workingHoursCsvText
@@ -376,6 +391,7 @@ export default function ImportPage() {
       router.push(`/tip/edit?storeId=${selectedStore}`);
     } catch (error) {
       console.error("Error formatting CSV data:", error);
+      setIsNavigating(false);
       // TODO: エラーハンドリング（エラーメッセージを表示するなど）
     }
   };
@@ -389,7 +405,7 @@ export default function ImportPage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-4xl mx-auto relative">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-gray-800">
             Import CSV Files
@@ -493,14 +509,14 @@ export default function ImportPage() {
           <div className="relative group">
             <button
               onClick={handleNext}
-              disabled={!isNextEnabled || !!calculationStatus.status}
+              disabled={!isNextEnabled || !!calculationStatus.status || isNavigating}
               className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-                isNextEnabled && !calculationStatus.status
+                isNextEnabled && !calculationStatus.status && !isNavigating
                   ? "bg-blue-500 text-white hover:bg-blue-600"
                   : "bg-gray-300 text-gray-500 cursor-not-allowed"
               }`}
             >
-              Next
+              {isNavigating ? "Loading..." : "Next"}
             </button>
             {selectedStore === "" && (
               <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-10">

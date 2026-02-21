@@ -3297,11 +3297,15 @@ app.post("/api/tips/format-tip-data", authMiddleware, async (req, res) => {
       );
     } else if (calculation) {
       // 4. Call adjust_off_hours_tips function via RPC
+      console.log('[DEBUG] Starting adjust_off_hours_tips...');
+      const rpcStartTime = Date.now();
       const { error: rpcError } = await supabase.rpc("adjust_off_hours_tips", {
         p_store_id: stores_id,
         p_period_start: calculation.period_start,
         p_period_end: calculation.period_end,
       });
+      const rpcEndTime = Date.now();
+      console.log(`[DEBUG] adjust_off_hours_tips completed in ${rpcEndTime - rpcStartTime}ms`);
 
       if (rpcError) {
         console.error("Supabase RPC adjust_off_hours_tips error:", rpcError);
@@ -3323,7 +3327,7 @@ app.post("/api/tips/format-tip-data", authMiddleware, async (req, res) => {
 // GET /api/tips/formatted-tip-data
 app.get("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
   try {
-    const { storeId } = req.query;
+    const { storeId, count_only } = req.query;
 
     // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
     const { data: storeUsers, error: storeUsersError } = await supabase
@@ -3339,7 +3343,13 @@ app.get("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
     }
 
     if (!storeUsers || storeUsers.length === 0) {
-      // ユーザーが権限を持つ店がない場合は空配列を返す
+      // ユーザーが権限を持つ店がない場合
+      if (count_only === 'true') {
+        return res.status(200).json({
+          success: true,
+          count: 0,
+        });
+      }
       return res.status(200).json({
         success: true,
         data: [],
@@ -3356,12 +3366,33 @@ app.get("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
           error: "You do not have permission to access this store",
         });
       }
-      // 指定された店舗のデータのみを取得
+
+      // count_only=true の場合は件数のみ返す（全データ対象）
+      if (count_only === 'true') {
+        const { count, error } = await supabase
+          .from("formatted_tip_data")
+          .select("*", { count: 'exact', head: true })
+          .eq("stores_id", storeId);
+
+        if (error) {
+          console.error("Supabase count formatted_tip_data error:", error);
+          throw new Error(`Failed to count tip data: ${error.message}`);
+        }
+
+        return res.status(200).json({
+          success: true,
+          count: count || 0,
+        });
+      }
+
+      // 指定された店舗のデータのみを取得（is_adjusted = true のみ）
       const { data, error } = await supabase
         .from("formatted_tip_data")
         .select("*")
         .eq("stores_id", storeId)
-        .order("created_at", { ascending: false });
+        .eq("is_adjusted", true)
+        .order("created_at", { ascending: false })
+        .limit(10000); // Increase limit to handle large datasets
 
       if (error) {
         console.error("Supabase select formatted_tip_data error:", error);
@@ -3374,12 +3405,32 @@ app.get("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
       });
     }
 
-    // 4. 店舗IDが指定されていない場合、既存の動作（全店舗のデータを返す）
+    // 4. 店舗IDが指定されていない場合
+    if (count_only === 'true') {
+      const { count, error } = await supabase
+        .from("formatted_tip_data")
+        .select("*", { count: 'exact', head: true })
+        .in("stores_id", storeIds);
+
+      if (error) {
+        console.error("Supabase count formatted_tip_data error:", error);
+        throw new Error(`Failed to count tip data: ${error.message}`);
+      }
+
+      return res.status(200).json({
+        success: true,
+        count: count || 0,
+      });
+    }
+
+    // 全店舗のデータを返す（is_adjusted = true のみ）
     const { data, error } = await supabase
       .from("formatted_tip_data")
       .select("*")
       .in("stores_id", storeIds)
-      .order("created_at", { ascending: false });
+      .eq("is_adjusted", true)
+      .order("created_at", { ascending: false })
+      .limit(10000); // Increase limit to handle large datasets
 
     if (error) {
       console.error("Supabase select formatted_tip_data error:", error);

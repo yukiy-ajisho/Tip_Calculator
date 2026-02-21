@@ -9,6 +9,7 @@ import {
   EmployeeTipStatusTable,
   EmployeeTipStatusTableRef,
 } from "@/components/EmployeeTipStatusTable";
+import { useTipNavigation } from "@/contexts/TipNavigationContext";
 import { api } from "@/lib/api";
 import {
   FormattedWorkingHours,
@@ -44,7 +45,7 @@ export default function EditPage() {
     FormattedWorkingHours[]
   >([]);
   const [deletedRecordIds, setDeletedRecordIds] = useState<string[]>([]);
-  const [isCalculating, setIsCalculating] = useState(false);
+  const { isNavigating, setIsNavigating } = useTipNavigation();
 
   // Tip Data の編集モード状態
   const [isEditingTips, setIsEditingTips] = useState(false);
@@ -57,8 +58,18 @@ export default function EditPage() {
     useState(false);
   const employeeTipStatusTableRef = useRef<EmployeeTipStatusTableRef>(null);
 
+  // Outside Range Tips タブで空のときに1回だけ再取得する用
+  const [isRefetchingTip, setIsRefetchingTip] = useState(false);
+  const hasRefetchedForEmptyTipRef = useRef(false);
+
   // Role mappings
   const [roleMappings, setRoleMappings] = useState<RoleMapping[]>([]);
+
+  // ページマウント時にisNavigatingをリセット
+  useEffect(() => {
+    setIsNavigating(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ページ読み込み時にSupabaseからデータ取得
   useEffect(() => {
@@ -76,6 +87,16 @@ export default function EditPage() {
       try {
         setIsLoading(true);
         setError(null);
+        hasRefetchedForEmptyTipRef.current = false;
+
+        // まず Tip CSV がアップロードされているかチェック（全データを対象にカウント）
+        const tipCountResult = await api.tips.getFormattedTipData(storeId, { countOnly: true });
+        
+        // 型ガードで count プロパティの存在をチェック
+        if (!tipCountResult.success || !('count' in tipCountResult) || tipCountResult.count === 0) {
+          router.push("/tip/import");
+          return;
+        }
 
         // calculationIdを取得
         const statusResult = await api.tips.getCalculationStatus(storeId);
@@ -83,7 +104,7 @@ export default function EditPage() {
           setCalculationId(statusResult.calculationId);
         }
 
-        // 指定された店舗IDでデータを取得
+        // 指定された店舗IDでデータを取得（tipResult は is_adjusted: true のみ）
         const [workingHoursResult, tipResult, cashTipResult, roleMappingsData] =
           await Promise.all([
             api.tips.getFormattedWorkingHours(storeId),
@@ -92,14 +113,13 @@ export default function EditPage() {
             api.roleMappings.getRoleMappings(storeId),
           ]);
 
-        // 一つでも欠けていたら /tip/import にリダイレクト
+        // Working Hours または API 呼び出しが失敗したら /tip/import にリダイレクト
         if (
           !workingHoursResult.success ||
           workingHoursResult.data.length === 0 ||
           !tipResult.success ||
-          tipResult.data.length === 0 ||
-          !cashTipResult.success ||
-          cashTipResult.data.length === 0
+          !("data" in tipResult) ||
+          !cashTipResult.success
         ) {
           router.push("/tip/import");
           return;
@@ -141,16 +161,56 @@ export default function EditPage() {
     fetchData();
   }, [router, storeId]);
 
+  // Outside Range Tips タブ表示時、tipData が空なら1回だけ再取得（RPC 完了の遅れ対策）
+  useEffect(() => {
+    if (
+      activeTab !== "tip" ||
+      tipData.length > 0 ||
+      !storeId ||
+      isLoading
+    ) {
+      return;
+    }
+    if (hasRefetchedForEmptyTipRef.current) return;
+    hasRefetchedForEmptyTipRef.current = true;
+
+    let cancelled = false;
+    const refetch = async () => {
+      setIsRefetchingTip(true);
+      try {
+        const result = await api.tips.getFormattedTipData(storeId);
+        if (cancelled) return;
+        if (result.success && "data" in result) {
+          setTipData(result.data);
+          setOriginalTipData(JSON.parse(JSON.stringify(result.data)));
+        }
+      } finally {
+        if (!cancelled) setIsRefetchingTip(false);
+      }
+    };
+    refetch();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, storeId, tipData.length, isLoading]);
+
   const handleBack = async () => {
     // タブに応じて前のタブに戻る、またはimportページに戻る
     if (activeTab === "cashTip") {
       // Cash Tipsタブ → Outside Range Tipsタブに戻る
+      setIsNavigating(true);
       setActiveTab("tip");
+      // タブ切り替えのラグを考慮して少し遅延
+      setTimeout(() => setIsNavigating(false), 100);
     } else if (activeTab === "tip") {
       // Outside Range Tipsタブ → Incomplete Recordsタブに戻る
+      setIsNavigating(true);
       setActiveTab("workingHours");
+      // タブ切り替えのラグを考慮して少し遅延
+      setTimeout(() => setIsNavigating(false), 100);
     } else if (activeTab === "workingHours") {
       // Incomplete Recordsタブ → importページに戻る（データは削除しない）
+      setIsNavigating(true);
       // 直接ナビゲーションのフラグを設定（自動リダイレクトを防ぐため）
       const SESSION_FLAG_KEY = "directNavigationFromEdit";
       sessionStorage.setItem(SESSION_FLAG_KEY, "true");
@@ -317,10 +377,16 @@ export default function EditPage() {
     // タブに応じて次のタブに移動、または計算を実行
     if (activeTab === "workingHours") {
       // Incomplete Recordsタブ → Outside Range Tipsタブに移動
+      setIsNavigating(true);
       setActiveTab("tip");
+      // タブ切り替えのラグを考慮して少し遅延
+      setTimeout(() => setIsNavigating(false), 100);
     } else if (activeTab === "tip") {
       // Outside Range Tipsタブ → Cash Tipsタブに移動
+      setIsNavigating(true);
       setActiveTab("cashTip");
+      // タブ切り替えのラグを考慮して少し遅延
+      setTimeout(() => setIsNavigating(false), 100);
     } else if (activeTab === "cashTip") {
       // Cash Tipsタブ → 計算を実行してcalculateページに遷移
       // 確認ダイアログを表示
@@ -331,76 +397,150 @@ export default function EditPage() {
         return;
       }
 
-    // storeIdが存在しない場合のエラーハンドリング
-    if (!storeId) {
-      alert("Store ID is missing. Please go back to import page.");
-      router.push("/tip/import");
-      return;
-    }
-
-    try {
-      // ローディング状態を設定
-      setIsCalculating(true);
-
-      // APIを呼び出して計算を実行
-      const response = await api.tips.calculate(storeId);
-
-      // 成功時の処理
-      if (response.success) {
-        // 計算結果ページにリダイレクト
-        router.push(`/tip/calculate?calculationId=${response.calculationId}`);
+      // storeIdが存在しない場合のエラーハンドリング
+      if (!storeId) {
+        alert("Store ID is missing. Please go back to import page.");
+        setIsNavigating(true);
+        router.push("/tip/import");
+        return;
       }
-    } catch (error) {
-      console.error("Failed to calculate tips:", error);
-      alert(
-        error instanceof Error
-          ? error.message
-          : "Failed to calculate tips. Please try again."
-      );
-    } finally {
-      setIsCalculating(false);
+
+      try {
+        // ローディング状態を設定
+        setIsNavigating(true);
+
+        // APIを呼び出して計算を実行
+        const response = await api.tips.calculate(storeId);
+
+        // 成功時の処理
+        if (response.success) {
+          // 計算結果ページにリダイレクト
+          router.push(`/tip/calculate?calculationId=${response.calculationId}`);
+        } else {
+          setIsNavigating(false);
+          alert("Failed to calculate tips. Please try again.");
+        }
+      } catch (error) {
+        console.error("Failed to calculate tips:", error);
+        setIsNavigating(false);
+        alert(
+          error instanceof Error
+            ? error.message
+            : "Failed to calculate tips. Please try again."
+        );
       }
     }
   };
 
   return (
     <div className="p-8">
-      <div className="w-full">
-        {/* タブボタン */}
-        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6 w-fit">
-          <button
-            onClick={() => setActiveTab("workingHours")}
-            className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-              activeTab === "workingHours"
-                ? "bg-white text-blue-700 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            Incomplete Records
-          </button>
-          <button
-            onClick={() => setActiveTab("tip")}
-            className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-              activeTab === "tip"
-                ? "bg-white text-blue-700 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            Outside Range Tips
-          </button>
-          <button
-            onClick={() => setActiveTab("cashTip")}
-            className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-              activeTab === "cashTip"
-                ? "bg-white text-blue-700 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            Cash Tips
-          </button>
+      <div className="w-full relative">
+        {/* 固定ヘッダーエリア */}
+        <div className="sticky top-0 z-10 bg-gray-50 -mx-8 px-8 py-4 mb-6">
+          {/* タブボタン */}
+          <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-4 w-fit">
+            <button
+              onClick={() => setActiveTab("workingHours")}
+              className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                activeTab === "workingHours"
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              Incomplete Records
+            </button>
+            <button
+              onClick={() => setActiveTab("tip")}
+              className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                activeTab === "tip"
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              Outside Range Tips
+            </button>
+            <button
+              onClick={() => setActiveTab("cashTip")}
+              className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                activeTab === "cashTip"
+                  ? "bg-white text-blue-700 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              Cash Tips
+            </button>
+          </div>
+
+          {/* Back/Nextボタン */}
+          <div className="flex justify-between">
+            <div className="relative group">
+              <button
+                onClick={handleBack}
+                disabled={
+                  isNavigating ||
+                  isEditingWorkingHours ||
+                  isEditingTips ||
+                  isEditingEmployeeTipStatus
+                }
+                className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+                  isNavigating ||
+                  isEditingWorkingHours ||
+                  isEditingTips ||
+                  isEditingEmployeeTipStatus
+                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    : "bg-gray-500 text-white hover:bg-gray-600"
+                }`}
+              >
+                {isNavigating ? "Loading..." : "Back"}
+              </button>
+              {(isEditingWorkingHours ||
+                isEditingTips ||
+                isEditingEmployeeTipStatus) && (
+                <div className="absolute bottom-full left-full ml-2 mb-2 px-3 py-2 bg-gray-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-10">
+                  Please save or cancel your edits before proceeding.
+                  <div className="absolute top-full left-0 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+                </div>
+              )}
+            </div>
+            <div className="relative group">
+              <button
+                onClick={handleNext}
+                disabled={
+                  isNavigating ||
+                  isEditingWorkingHours ||
+                  isEditingTips ||
+                  isEditingEmployeeTipStatus
+                }
+                className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+                  isNavigating ||
+                  isEditingWorkingHours ||
+                  isEditingTips ||
+                  isEditingEmployeeTipStatus
+                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    : "bg-blue-500 text-white hover:bg-blue-600"
+                }`}
+              >
+                {isNavigating
+                  ? "Loading..."
+                  : activeTab === "cashTip"
+                  ? "Calculate"
+                  : "Next"}
+              </button>
+              {(isEditingWorkingHours ||
+                isEditingTips ||
+                isEditingEmployeeTipStatus) && (
+                <div className="absolute bottom-full right-full mr-2 mb-2 px-3 py-2 bg-gray-800 text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity duration-200 z-10">
+                  Please save or cancel your edits before proceeding.
+                  <div className="absolute top-full right-0 -mt-1 border-4 border-transparent border-t-gray-800"></div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Working Hours CSV タブのコンテンツ */}
+        {/* コンテンツエリア */}
+        <div>
+          {/* Working Hours CSV タブのコンテンツ */}
         {activeTab === "workingHours" && (
           <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
             {/* Edit/Save/Cancelボタン */}
@@ -484,7 +624,7 @@ export default function EditPage() {
               )}
             </div>
 
-            {isLoading ? (
+            {isLoading || isRefetchingTip ? (
               <p className="text-sm text-gray-600">Loading tip data...</p>
             ) : error ? (
               <p className="text-sm text-red-600">Error: {error}</p>
@@ -544,11 +684,11 @@ export default function EditPage() {
                     Cash Tips
                   </h3>
                   {cashTipData.length === 0 ? (
-              <p className="text-sm text-gray-500">
-                No cash tip data available. Please import a file first.
-              </p>
-            ) : (
-              <CashTipEditTable data={cashTipData} />
+                    <p className="text-sm text-gray-500">
+                      No cash tip data available. Please import a file first.
+                    </p>
+                  ) : (
+                    <CashTipEditTable data={cashTipData} />
                   )}
                 </div>
 
@@ -567,30 +707,6 @@ export default function EditPage() {
             )}
           </div>
         )}
-
-        {/* Back/Nextボタン */}
-        <div className="flex justify-between mt-8">
-          <button
-            onClick={handleBack}
-            className="px-4 py-1.5 text-sm bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
-          >
-            Back
-          </button>
-          <button
-            onClick={handleNext}
-            disabled={isCalculating}
-            className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-              isCalculating
-                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                : "bg-blue-500 text-white hover:bg-blue-600"
-            }`}
-          >
-            {isCalculating
-              ? "Calculating..."
-              : activeTab === "cashTip"
-              ? "Calculate"
-              : "Next"}
-          </button>
         </div>
       </div>
     </div>
