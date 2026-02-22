@@ -310,43 +310,81 @@ export default function RecordsPage() {
     );
   };
 
-  // Store Breakdown用: 日付ごとにグループ化（Storeを考慮）
-  const storeBreakdownByDate = useMemo(() => {
-    const grouped: Record<string, typeof Records> = {};
-
-    Records.forEach((record) => {
-      const date = record.periodStart;
-      if (!grouped[date]) {
-        grouped[date] = [];
+  // Store Breakdown用: フィルター適用後のレコード（Year, Period, Name, Store）
+  const filteredRecordsStoreBreakdown = useMemo(() => {
+    return Records.filter((record) => {
+      if (selectedYearStoreBreakdown) {
+        const periodParts = record.periodStart.split("/");
+        if (periodParts.length === 3) {
+          const year = "20" + periodParts[2];
+          if (year !== selectedYearStoreBreakdown) return false;
+        }
       }
+      if (selectedPeriodStoreBreakdown) {
+        if (record.periodStart !== selectedPeriodStoreBreakdown) return false;
+      }
+      if (selectedNameStoreBreakdown) {
+        if (record.name !== selectedNameStoreBreakdown) return false;
+      }
+      if (selectedStoreStoreBreakdown) {
+        if (record.store !== selectedStoreStoreBreakdown) return false;
+      }
+      return true;
+    });
+  }, [
+    Records,
+    selectedYearStoreBreakdown,
+    selectedPeriodStoreBreakdown,
+    selectedNameStoreBreakdown,
+    selectedStoreStoreBreakdown,
+  ]);
+
+  // Store Breakdown用: フィルター適用後の日付ごとグループ化（左サイドバー・右テーブル共通）
+  const storeBreakdownByDateFiltered = useMemo(() => {
+    const grouped: Record<string, typeof Records> = {};
+    filteredRecordsStoreBreakdown.forEach((record) => {
+      const date = record.periodStart;
+      if (!grouped[date]) grouped[date] = [];
       grouped[date].push(record);
     });
-
     return grouped;
-  }, [Records]);
+  }, [filteredRecordsStoreBreakdown]);
 
-  // 初期選択: 最初の日付を選択
-  // 日付をソート（MM/DD/YYYY形式なので、一度YYYY-MM-DDに変換してからソート）
+  // 日付をソート用に変換（MM/DD/YY → YYYY-MM-DD）
+  const convertToSortableDate = (dateStr: string) => {
+    const parts = dateStr.split("/");
+    if (parts.length !== 3) return dateStr;
+    return `${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(2, "0")}`;
+  };
+
+  // 左サイドバー用: フィルター後かつ合計が0でない日付のみ表示
   const availableDates = useMemo(() => {
-    const dates = Object.keys(storeBreakdownByDate);
-    return dates.sort((a, b) => {
-      // MM/DD/YYYY → YYYY-MM-DDに変換して比較
-      const convertToSortable = (dateStr: string) => {
-        const parts = dateStr.split("/");
-        if (parts.length !== 3) return dateStr;
-        return `${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(
-          2,
-          "0"
-        )}`;
-      };
-      const dateA = convertToSortable(a);
-      const dateB = convertToSortable(b);
-      return dateB.localeCompare(dateA); // 降順（新しい日付が先）
+    const dates = Object.keys(storeBreakdownByDateFiltered).filter((date) => {
+      const records = storeBreakdownByDateFiltered[date] || [];
+      const total = records.reduce(
+        (sum, r) => sum + r.tips + r.cashTips,
+        0
+      );
+      return total > 0;
     });
-  }, [storeBreakdownByDate]);
+    return dates.sort((a, b) =>
+      convertToSortableDate(b).localeCompare(convertToSortableDate(a))
+    );
+  }, [storeBreakdownByDateFiltered]);
 
   // Store Breakdown用: 選択された日付の状態（null = "All"を選択）
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  // フィルター変更で選択中の日付がリストに無くなったら All に戻す
+  useEffect(() => {
+    if (
+      selectedDate !== null &&
+      availableDates.length > 0 &&
+      !availableDates.includes(selectedDate)
+    ) {
+      setSelectedDate(null);
+    }
+  }, [availableDates, selectedDate]);
 
   // Store Breakdown用: ソート状態
   const [nameSortOrder, setNameSortOrder] = useState<"asc" | "desc" | null>(
@@ -356,24 +394,24 @@ export default function RecordsPage() {
     null
   );
 
-  // Store Breakdown用: 各日付の合計を計算（Storeを考慮）
+  // Store Breakdown用: 各日付の合計を計算（フィルター適用後）
   const getStoreBreakdownDateTotal = (date: string) => {
-    const records = storeBreakdownByDate[date] || [];
+    const records = storeBreakdownByDateFiltered[date] || [];
     return records.reduce(
       (sum, record) => sum + record.tips + record.cashTips,
       0
     );
   };
 
-  // Store Breakdown用: 各日付のtip合計を計算
+  // Store Breakdown用: 各日付のtip合計を計算（フィルター適用後）
   const getStoreBreakdownTipTotal = (date: string) => {
-    const records = storeBreakdownByDate[date] || [];
+    const records = storeBreakdownByDateFiltered[date] || [];
     return records.reduce((sum, record) => sum + record.tips, 0);
   };
 
-  // Store Breakdown用: 各日付のcash tip合計を計算
+  // Store Breakdown用: 各日付のcash tip合計を計算（フィルター適用後）
   const getStoreBreakdownCashTipTotal = (date: string) => {
-    const records = storeBreakdownByDate[date] || [];
+    const records = storeBreakdownByDateFiltered[date] || [];
     return records.reduce((sum, record) => sum + record.cashTips, 0);
   };
 
@@ -413,47 +451,17 @@ export default function RecordsPage() {
     };
   }, [Records]);
 
-  // Store Breakdown用: 選択された日付のデータを取得し、名前でグループ化
+  // Store Breakdown用: 選択された日付のデータを取得（フィルターは既に適用済み）
   const getFilteredAndGroupedRecords = useMemo(() => {
-    // selectedDateがnullの場合はすべての日付のデータを返す
     let records: typeof Records = [];
-
     if (selectedDate === null) {
-      // すべての日付のデータを結合
-      records = Object.values(storeBreakdownByDate).flat();
+      records = Object.values(storeBreakdownByDateFiltered).flat();
     } else {
-      records = storeBreakdownByDate[selectedDate] || [];
+      records = storeBreakdownByDateFiltered[selectedDate] || [];
     }
 
-    // フィルターを適用
-    const filteredRecords = records.filter((record) => {
-      // Yearフィルター
-      if (selectedYearStoreBreakdown) {
-        const periodParts = record.periodStart.split("/");
-        if (periodParts.length === 3) {
-          const year = "20" + periodParts[2];
-          if (year !== selectedYearStoreBreakdown) return false;
-        } else {
-          return false;
-        }
-      }
-      // Periodフィルター
-      if (selectedPeriodStoreBreakdown) {
-        if (record.periodStart !== selectedPeriodStoreBreakdown) return false;
-      }
-      // Nameフィルター
-      if (selectedNameStoreBreakdown) {
-        if (record.name !== selectedNameStoreBreakdown) return false;
-      }
-      // Storeフィルター
-      if (selectedStoreStoreBreakdown) {
-        if (record.store !== selectedStoreStoreBreakdown) return false;
-      }
-      return true;
-    });
-
     // ソート: 最後にクリックした列を優先
-    const sorted = [...filteredRecords].sort((a, b) => {
+    const sorted = [...records].sort((a, b) => {
       // Storeソートが有効な場合（最後にクリックされた列）
       if (storeSortOrder !== null) {
         if (storeSortOrder === "asc") {
@@ -499,13 +507,9 @@ export default function RecordsPage() {
     return sorted;
   }, [
     selectedDate,
-    storeBreakdownByDate,
+    storeBreakdownByDateFiltered,
     nameSortOrder,
     storeSortOrder,
-    selectedYearStoreBreakdown,
-    selectedPeriodStoreBreakdown,
-    selectedNameStoreBreakdown,
-    selectedStoreStoreBreakdown,
   ]);
 
   // Name列のソートを切り替える（Storeのソートを無効化）
