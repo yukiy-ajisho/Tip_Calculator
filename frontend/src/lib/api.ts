@@ -251,6 +251,15 @@ export const api = {
         }),
       });
     },
+    rollbackProcessingCalculation: (storeId: string): Promise<{ success: boolean }> => {
+      return apiRequest<{ success: boolean }>(
+        "/api/tips/rollback-processing-calculation",
+        {
+          method: "POST",
+          body: JSON.stringify({ storeId }),
+        }
+      );
+    },
     getFormattedTipData: (
       storeId?: string,
       options?: { countOnly?: boolean }

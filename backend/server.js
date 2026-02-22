@@ -1293,13 +1293,26 @@ app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
 
     if (calcError) {
       console.error("Supabase insert error:", calcError);
+      // 同じ店・同じ期間がすでにある場合（unique_store_period）は 400 でユーザー向けメッセージを返す
+      const isDuplicatePeriod =
+        calcError.code === "23505" ||
+        (calcError.message &&
+          (calcError.message.includes("unique_store_period") ||
+            calcError.message.includes("duplicate key value violates unique constraint")));
+      if (isDuplicatePeriod) {
+        return res.status(400).json({
+          error:
+            "A calculation for this store and period already exists. Please clear existing data first or use a different period.",
+        });
+      }
       throw new Error(`Failed to save period info: ${calcError.message}`);
     }
 
     const calculationId = calculation.id;
 
-    // 3. CSVデータを整形
-    const formattedData = formatWorkingHoursData(csvData);
+    try {
+      // 3. CSVデータを整形
+      const formattedData = formatWorkingHoursData(csvData);
 
     // 4. formatted_working_hoursテーブルに保存
     if (formattedData.length > 0) {
@@ -1384,13 +1397,106 @@ app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
       }
     }
 
-    // 6. 成功ステータスのみ返す（データは返さない）
-    res.status(200).json({
-      success: true,
-      calculationId,
-    });
+      // 6. 成功ステータスのみ返す（データは返さない）
+      res.status(200).json({
+        success: true,
+        calculationId,
+      });
+    } catch (innerError) {
+      // パース・保存失敗時: 作成した tip_calculation を削除して 400 を返す
+      await supabase
+        .from("tip_calculations")
+        .delete()
+        .eq("id", calculationId);
+      console.error("Error formatting working hours:", innerError);
+      res.status(400).json({
+        error:
+          "Working Hours CSV could not be read or parsed. Please check the file format.",
+      });
+    }
   } catch (error) {
     console.error("Error formatting working hours:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/tips/rollback-processing-calculation
+// Import で片方だけ成功したときに、processing と中間データを削除する
+app.post("/api/tips/rollback-processing-calculation", authMiddleware, async (req, res) => {
+  try {
+    const { storeId } = req.body;
+
+    if (!storeId) {
+      return res.status(400).json({ error: "storeId is required" });
+    }
+
+    // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
+    const { data: storeUsers, error: storeUsersError } = await supabase
+      .from("store_users")
+      .select("store_id")
+      .eq("user_id", req.user.id);
+
+    if (storeUsersError) {
+      console.error("Supabase select store_users error:", storeUsersError);
+      return res.status(500).json({
+        error: "Failed to fetch user stores",
+      });
+    }
+
+    if (!storeUsers || storeUsers.length === 0) {
+      return res.status(200).json({ success: true });
+    }
+
+    const storeIds = storeUsers.map((su) => su.store_id);
+    if (!storeIds.includes(storeId)) {
+      return res.status(403).json({
+        error: "You do not have permission to access this store",
+      });
+    }
+
+    // 2. その店の status = 'processing' の tip_calculations を 1 件取得
+    const { data: calculation, error: calcError } = await supabase
+      .from("tip_calculations")
+      .select("id")
+      .eq("stores_id", storeId)
+      .eq("status", "processing")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (calcError || !calculation) {
+      return res.status(200).json({ success: true });
+    }
+
+    const calculationId = calculation.id;
+
+    // 3. employee_tip_status を削除（calculation_id）
+    await supabase
+      .from("employee_tip_status")
+      .delete()
+      .eq("calculation_id", calculationId);
+
+    // 4. formatted_working_hours を削除（stores_id）
+    await supabase
+      .from("formatted_working_hours")
+      .delete()
+      .eq("stores_id", storeId);
+
+    // 5. formatted_tip_data を削除（stores_id）
+    await supabase
+      .from("formatted_tip_data")
+      .delete()
+      .eq("stores_id", storeId);
+
+    // 6. tip_calculations のその 1 件を削除
+    await supabase
+      .from("tip_calculations")
+      .delete()
+      .eq("id", calculationId);
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Error rollback-processing-calculation:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -3320,7 +3426,10 @@ app.post("/api/tips/format-tip-data", authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error("Error formatting tip data:", error);
-    res.status(500).json({ error: error.message });
+    res.status(400).json({
+      error:
+        "Tip CSV could not be read or parsed. Please check the file format.",
+    });
   }
 });
 
