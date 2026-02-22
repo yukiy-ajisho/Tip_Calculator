@@ -8,6 +8,7 @@ import { PreviewModal } from "@/components/PreviewModal";
 import { StoreSelectDropdown } from "@/components/StoreSelectDropdown";
 import { useTipNavigation } from "@/contexts/TipNavigationContext";
 import { api } from "@/lib/api";
+import { getErrorMessage } from "@/lib/is-api-error";
 import { Store } from "@/types";
 
 interface FileState {
@@ -60,6 +61,8 @@ export default function ImportPage() {
     fileName: "",
     data: [],
   });
+
+  const [importError, setImportError] = useState<string | null>(null);
 
   const STORAGE_KEY = "lastTipSession";
   const SESSION_FLAG_KEY = "directNavigationFromEdit";
@@ -341,22 +344,51 @@ export default function ImportPage() {
       return;
     }
 
-    try {
-      setIsNavigating(true);
+    setImportError(null);
+    setIsNavigating(true);
 
+    try {
       // Working Hours CSVを整形してSupabaseに保存
       const workingHoursCsvText = await workingHoursFile.file.text();
       const workingHoursCsvLines = workingHoursCsvText
         .split("\n")
         .filter((line) => line.trim() !== "");
-      await api.tips.formatWorkingHours(selectedStore, workingHoursCsvLines);
+      try {
+        await api.tips.formatWorkingHours(selectedStore, workingHoursCsvLines);
+      } catch (error) {
+        console.error("Error formatting Working Hours CSV:", error);
+        try {
+          await api.tips.rollbackProcessingCalculation(selectedStore);
+        } catch {
+          // ignore rollback errors
+        }
+        setImportError(
+          getErrorMessage(error, "Working Hours CSV could not be read or parsed. Please check the file format.")
+        );
+        setIsNavigating(false);
+        return;
+      }
 
       // Tip CSVを整形してSupabaseに保存
       const tipCsvText = await tipFile.file.text();
       const tipCsvLines = tipCsvText
         .split("\n")
         .filter((line) => line.trim() !== "");
-      await api.tips.formatTipData(selectedStore, tipCsvLines);
+      try {
+        await api.tips.formatTipData(selectedStore, tipCsvLines);
+      } catch (error) {
+        console.error("Error formatting Tip CSV:", error);
+        try {
+          await api.tips.rollbackProcessingCalculation(selectedStore);
+        } catch {
+          // ignore rollback errors
+        }
+        setImportError(
+          getErrorMessage(error, "Tip CSV could not be read or parsed. Please check the file format.")
+        );
+        setIsNavigating(false);
+        return;
+      }
 
       // Cash Tipデータを整形してSupabaseに保存（存在する場合のみ）
       if (
@@ -391,8 +423,10 @@ export default function ImportPage() {
       router.push(`/tip/edit?storeId=${selectedStore}`);
     } catch (error) {
       console.error("Error formatting CSV data:", error);
+      setImportError(
+        getErrorMessage(error, "An error occurred while importing. Please try again.")
+      );
       setIsNavigating(false);
-      // TODO: エラーハンドリング（エラーメッセージを表示するなど）
     }
   };
 
@@ -424,6 +458,12 @@ export default function ImportPage() {
             />
           </div>
         </div>
+
+        {importError && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-800">{importError}</p>
+          </div>
+        )}
 
         {/* Existing data message and buttons (shown right after store selection) */}
         {calculationStatus.status && selectedStore && (
