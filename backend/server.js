@@ -2489,10 +2489,10 @@ app.delete(
         return res.status(404).json({ error: "Record not found" });
       }
 
-      // 3. calculation_idからtip_calculationsを取得して権限チェック
+      // 3. calculation_idからtip_calculationsを取得して権限チェック（statusも取得し、残り0件時に親削除で使用）
       const { data: calculation, error: calcError } = await supabase
         .from("tip_calculations")
-        .select("stores_id")
+        .select("stores_id, status")
         .eq("id", record.calculation_id)
         .single();
 
@@ -2518,6 +2518,27 @@ app.delete(
           deleteError
         );
         throw new Error(`Failed to delete record: ${deleteError.message}`);
+      }
+
+      // 5. 同じ calculation_id の結果が0件かつ status が 'saved' なら tip_calculations を削除（再インポート可能にする）
+      const { count, error: countError } = await supabase
+        .from("tip_calculation_results")
+        .select("id", { count: "exact", head: true })
+        .eq("calculation_id", record.calculation_id);
+
+      if (!countError && count === 0 && calculation.status === "saved") {
+        const { error: deleteCalcError } = await supabase
+          .from("tip_calculations")
+          .delete()
+          .eq("id", record.calculation_id);
+
+        if (deleteCalcError) {
+          console.error(
+            "Supabase delete tip_calculations (orphan) error:",
+            deleteCalcError
+          );
+          // 削除失敗してもレコード削除は成功しているので 200 のまま返す
+        }
       }
 
       res.status(200).json({ success: true, message: "Record deleted" });
