@@ -69,7 +69,7 @@ async function authMiddleware(req, res, next) {
           autoRefreshToken: false,
           persistSession: false,
         },
-      }
+      },
     );
 
     // トークンを検証してユーザー情報を取得
@@ -94,7 +94,11 @@ async function authMiddleware(req, res, next) {
   }
 }
 
-// ルート
+// ルート（Render 等で URL 直アクセス時に表示）
+app.get("/", (req, res) => {
+  res.json({ message: "Tip Calculator API is running" });
+});
+
 // ヘルスチェックエンドポイント（認証不要）
 app.get("/api/test", (req, res) => {
   res.json({ message: "Backend is working!" });
@@ -514,7 +518,7 @@ function extractPeriodInfo(csvData) {
   const periodLine = csvData[1];
   // "Payroll Period,10/27/2025 To 11/09/2025" から期間を抽出
   const periodMatch = periodLine.match(
-    /(\d{1,2}\/\d{1,2}\/\d{4})\s+To\s+(\d{1,2}\/\d{1,2}\/\d{4})/
+    /(\d{1,2}\/\d{1,2}\/\d{4})\s+To\s+(\d{1,2}\/\d{1,2}\/\d{4})/,
   );
 
   if (!periodMatch) {
@@ -674,11 +678,11 @@ function formatWorkingHoursData(csvData) {
       pendingShift;
 
     console.log(
-      `[DEBUG] processPendingShift: name=${name}, date=${date}, breaks.length=${breaks.length}`
+      `[DEBUG] processPendingShift: name=${name}, date=${date}, breaks.length=${breaks.length}`,
     );
     if (breaks.length > 0) {
       console.log(
-        `[DEBUG] Breaks: ${breaks.map((b) => `${b.start}-${b.end}`).join(", ")}`
+        `[DEBUG] Breaks: ${breaks.map((b) => `${b.start}-${b.end}`).join(", ")}`,
       );
     }
 
@@ -735,7 +739,7 @@ function formatWorkingHoursData(csvData) {
         1 + sortedBreaks.length
       } records (1 before first break + ${
         sortedBreaks.length - 1
-      } between breaks + 1 after last break)`
+      } between breaks + 1 after last break)`,
     );
   };
 
@@ -800,19 +804,19 @@ function formatWorkingHoursData(csvData) {
       console.log(
         `[DEBUG] clockInDate is empty, row ${i}: name="${name}", breakStart="${breakStart}", breakEnd="${breakEnd}", pendingShift=${
           pendingShift ? "exists" : "null"
-        }`
+        }`,
       );
       // 保留中のシフトがある場合、追加の休憩行として処理
       if (pendingShift) {
         const hasBreak =
           breakStart && breakEnd && breakStart !== "" && breakEnd !== "";
         console.log(
-          `[DEBUG] hasBreak=${hasBreak}, breakStart="${breakStart}", breakEnd="${breakEnd}"`
+          `[DEBUG] hasBreak=${hasBreak}, breakStart="${breakStart}", breakEnd="${breakEnd}"`,
         );
         if (hasBreak) {
           pendingShift.breaks.push({ start: breakStart, end: breakEnd });
           console.log(
-            `[DEBUG] Added break to pendingShift: ${breakStart}-${breakEnd}, total breaks: ${pendingShift.breaks.length}`
+            `[DEBUG] Added break to pendingShift: ${breakStart}-${breakEnd}, total breaks: ${pendingShift.breaks.length}`,
           );
         }
         continue;
@@ -899,7 +903,7 @@ function formatWorkingHoursData(csvData) {
       breaks: hasBreak ? [{ start: breakStart, end: breakEnd }] : [],
     };
     console.log(
-      `[DEBUG] Created new pendingShift: name=${employeeName}, date=${date}, initial breaks=${pendingShift.breaks.length}`
+      `[DEBUG] Created new pendingShift: name=${employeeName}, date=${date}, initial breaks=${pendingShift.breaks.length}`,
     );
 
     // 従業員名を更新
@@ -1021,14 +1025,14 @@ function formatToastTipData(csvData) {
   // ヘッダー行からカラムインデックスを取得
   const headerRow = rows[headerRowIndex];
   const openedIndex = headerRow.findIndex(
-    (col) => col.toLowerCase().trim() === "opened"
+    (col) => col.toLowerCase().trim() === "opened",
   );
   const tipIndex = headerRow.findIndex(
-    (col) => col.toLowerCase().trim() === "tip"
+    (col) => col.toLowerCase().trim() === "tip",
   );
   // Gratuity列はオプショナル（Toast形式のCSVにのみ存在する可能性がある）
   const gratuityIndex = headerRow.findIndex(
-    (col) => col.toLowerCase().trim() === "gratuity"
+    (col) => col.toLowerCase().trim() === "gratuity",
   );
 
   if (openedIndex === -1 || tipIndex === -1) {
@@ -1146,10 +1150,10 @@ function formatCloverTipData(csvData) {
   // ヘッダー行からカラムインデックスを取得
   const headerRow = rows[headerRowIndex];
   const orderDateIndex = headerRow.findIndex(
-    (col) => col.toLowerCase().trim() === "order date"
+    (col) => col.toLowerCase().trim() === "order date",
   );
   const tipIndex = headerRow.findIndex(
-    (col) => col.toLowerCase().trim() === "tip"
+    (col) => col.toLowerCase().trim() === "tip",
   );
 
   if (orderDateIndex === -1 || tipIndex === -1) {
@@ -1298,7 +1302,9 @@ app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
         calcError.code === "23505" ||
         (calcError.message &&
           (calcError.message.includes("unique_store_period") ||
-            calcError.message.includes("duplicate key value violates unique constraint")));
+            calcError.message.includes(
+              "duplicate key value violates unique constraint",
+            )));
       if (isDuplicatePeriod) {
         return res.status(400).json({
           error:
@@ -1314,88 +1320,90 @@ app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
       // 3. CSVデータを整形
       const formattedData = formatWorkingHoursData(csvData);
 
-    // 4. formatted_working_hoursテーブルに保存
-    if (formattedData.length > 0) {
-      const insertData = formattedData.map((record) => {
-        // is_completeを現在の完全性に基づいて計算
-        // フロントエンドのisRecordCompleteと同じロジック（name, date, start, end, roleをチェック）
-        const isComplete = !!(
-          record.name &&
-          record.date &&
-          record.start &&
-          record.end &&
-          record.role &&
-          record.role.trim() !== ""
-        );
-
-        return {
-          stores_id: stores_id,
-          name: record.name,
-          date: record.date || null,
-          start: record.start || null,
-          end: record.end || null, // "end" is a reserved keyword, so it's quoted
-          role: record.role || "",
-          is_complete_on_import: record.is_complete_on_import || false,
-          is_complete: isComplete,
-        };
-      });
-
-      const { error: insertError } = await supabase
-        .from("formatted_working_hours")
-        .insert(insertData);
-
-      if (insertError) {
-        console.error("Supabase insert error:", insertError);
-        throw new Error(`Failed to save working hours: ${insertError.message}`);
-      }
-
-      // 5. employee_tip_statusを生成
-      // 念のため、既存のemployee_tip_statusを削除してから挿入（同じcalculation_idの場合）
-      const { error: deleteExistingError } = await supabase
-        .from("employee_tip_status")
-        .delete()
-        .eq("calculation_id", calculationId);
-
-      if (deleteExistingError) {
-        console.error(
-          "Supabase delete existing employee_tip_status error:",
-          deleteExistingError
-        );
-        // 削除エラーは致命的ではないので、警告のみ（続行）
-        console.warn(
-          "Failed to delete existing employee_tip_status, but continuing..."
-        );
-      }
-
-      // formatted_working_hoursからユニークな従業員名を取得（is_completeに関係なく）
-      const uniqueEmployeeNames = [
-        ...new Set(insertData.map((record) => record.name).filter(Boolean)),
-      ];
-
-      if (uniqueEmployeeNames.length > 0) {
-        const employeeTipStatusData = uniqueEmployeeNames.map((name) => ({
-          calculation_id: calculationId,
-          stores_id: stores_id,
-          employee_name: name,
-          is_tipped: true, // 初期値は全てtrue
-        }));
-
-        const { error: tipStatusError } = await supabase
-          .from("employee_tip_status")
-          .insert(employeeTipStatusData);
-
-        if (tipStatusError) {
-          console.error(
-            "Supabase insert employee_tip_status error:",
-            tipStatusError
+      // 4. formatted_working_hoursテーブルに保存
+      if (formattedData.length > 0) {
+        const insertData = formattedData.map((record) => {
+          // is_completeを現在の完全性に基づいて計算
+          // フロントエンドのisRecordCompleteと同じロジック（name, date, start, end, roleをチェック）
+          const isComplete = !!(
+            record.name &&
+            record.date &&
+            record.start &&
+            record.end &&
+            record.role &&
+            record.role.trim() !== ""
           );
-          // employee_tip_statusのエラーは致命的ではないので、警告のみ
-          console.warn(
-            "Failed to create employee_tip_status, but continuing..."
+
+          return {
+            stores_id: stores_id,
+            name: record.name,
+            date: record.date || null,
+            start: record.start || null,
+            end: record.end || null, // "end" is a reserved keyword, so it's quoted
+            role: record.role || "",
+            is_complete_on_import: record.is_complete_on_import || false,
+            is_complete: isComplete,
+          };
+        });
+
+        const { error: insertError } = await supabase
+          .from("formatted_working_hours")
+          .insert(insertData);
+
+        if (insertError) {
+          console.error("Supabase insert error:", insertError);
+          throw new Error(
+            `Failed to save working hours: ${insertError.message}`,
           );
         }
+
+        // 5. employee_tip_statusを生成
+        // 念のため、既存のemployee_tip_statusを削除してから挿入（同じcalculation_idの場合）
+        const { error: deleteExistingError } = await supabase
+          .from("employee_tip_status")
+          .delete()
+          .eq("calculation_id", calculationId);
+
+        if (deleteExistingError) {
+          console.error(
+            "Supabase delete existing employee_tip_status error:",
+            deleteExistingError,
+          );
+          // 削除エラーは致命的ではないので、警告のみ（続行）
+          console.warn(
+            "Failed to delete existing employee_tip_status, but continuing...",
+          );
+        }
+
+        // formatted_working_hoursからユニークな従業員名を取得（is_completeに関係なく）
+        const uniqueEmployeeNames = [
+          ...new Set(insertData.map((record) => record.name).filter(Boolean)),
+        ];
+
+        if (uniqueEmployeeNames.length > 0) {
+          const employeeTipStatusData = uniqueEmployeeNames.map((name) => ({
+            calculation_id: calculationId,
+            stores_id: stores_id,
+            employee_name: name,
+            is_tipped: true, // 初期値は全てtrue
+          }));
+
+          const { error: tipStatusError } = await supabase
+            .from("employee_tip_status")
+            .insert(employeeTipStatusData);
+
+          if (tipStatusError) {
+            console.error(
+              "Supabase insert employee_tip_status error:",
+              tipStatusError,
+            );
+            // employee_tip_statusのエラーは致命的ではないので、警告のみ
+            console.warn(
+              "Failed to create employee_tip_status, but continuing...",
+            );
+          }
+        }
       }
-    }
 
       // 6. 成功ステータスのみ返す（データは返さない）
       res.status(200).json({
@@ -1404,10 +1412,7 @@ app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
       });
     } catch (innerError) {
       // パース・保存失敗時: 作成した tip_calculation を削除して 400 を返す
-      await supabase
-        .from("tip_calculations")
-        .delete()
-        .eq("id", calculationId);
+      await supabase.from("tip_calculations").delete().eq("id", calculationId);
       console.error("Error formatting working hours:", innerError);
       res.status(400).json({
         error:
@@ -1422,84 +1427,85 @@ app.post("/api/tips/format-working-hours", authMiddleware, async (req, res) => {
 
 // POST /api/tips/rollback-processing-calculation
 // Import で片方だけ成功したときに、processing と中間データを削除する
-app.post("/api/tips/rollback-processing-calculation", authMiddleware, async (req, res) => {
-  try {
-    const { storeId } = req.body;
+app.post(
+  "/api/tips/rollback-processing-calculation",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { storeId } = req.body;
 
-    if (!storeId) {
-      return res.status(400).json({ error: "storeId is required" });
+      if (!storeId) {
+        return res.status(400).json({ error: "storeId is required" });
+      }
+
+      // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
+      const { data: storeUsers, error: storeUsersError } = await supabase
+        .from("store_users")
+        .select("store_id")
+        .eq("user_id", req.user.id);
+
+      if (storeUsersError) {
+        console.error("Supabase select store_users error:", storeUsersError);
+        return res.status(500).json({
+          error: "Failed to fetch user stores",
+        });
+      }
+
+      if (!storeUsers || storeUsers.length === 0) {
+        return res.status(200).json({ success: true });
+      }
+
+      const storeIds = storeUsers.map((su) => su.store_id);
+      if (!storeIds.includes(storeId)) {
+        return res.status(403).json({
+          error: "You do not have permission to access this store",
+        });
+      }
+
+      // 2. その店の status = 'processing' の tip_calculations を 1 件取得
+      const { data: calculation, error: calcError } = await supabase
+        .from("tip_calculations")
+        .select("id")
+        .eq("stores_id", storeId)
+        .eq("status", "processing")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (calcError || !calculation) {
+        return res.status(200).json({ success: true });
+      }
+
+      const calculationId = calculation.id;
+
+      // 3. employee_tip_status を削除（calculation_id）
+      await supabase
+        .from("employee_tip_status")
+        .delete()
+        .eq("calculation_id", calculationId);
+
+      // 4. formatted_working_hours を削除（stores_id）
+      await supabase
+        .from("formatted_working_hours")
+        .delete()
+        .eq("stores_id", storeId);
+
+      // 5. formatted_tip_data を削除（stores_id）
+      await supabase
+        .from("formatted_tip_data")
+        .delete()
+        .eq("stores_id", storeId);
+
+      // 6. tip_calculations のその 1 件を削除
+      await supabase.from("tip_calculations").delete().eq("id", calculationId);
+
+      res.status(200).json({ success: true });
+    } catch (error) {
+      console.error("Error rollback-processing-calculation:", error);
+      res.status(500).json({ error: error.message });
     }
-
-    // 1. ユーザーが権限を持つ店を取得（store_usersテーブルから）
-    const { data: storeUsers, error: storeUsersError } = await supabase
-      .from("store_users")
-      .select("store_id")
-      .eq("user_id", req.user.id);
-
-    if (storeUsersError) {
-      console.error("Supabase select store_users error:", storeUsersError);
-      return res.status(500).json({
-        error: "Failed to fetch user stores",
-      });
-    }
-
-    if (!storeUsers || storeUsers.length === 0) {
-      return res.status(200).json({ success: true });
-    }
-
-    const storeIds = storeUsers.map((su) => su.store_id);
-    if (!storeIds.includes(storeId)) {
-      return res.status(403).json({
-        error: "You do not have permission to access this store",
-      });
-    }
-
-    // 2. その店の status = 'processing' の tip_calculations を 1 件取得
-    const { data: calculation, error: calcError } = await supabase
-      .from("tip_calculations")
-      .select("id")
-      .eq("stores_id", storeId)
-      .eq("status", "processing")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (calcError || !calculation) {
-      return res.status(200).json({ success: true });
-    }
-
-    const calculationId = calculation.id;
-
-    // 3. employee_tip_status を削除（calculation_id）
-    await supabase
-      .from("employee_tip_status")
-      .delete()
-      .eq("calculation_id", calculationId);
-
-    // 4. formatted_working_hours を削除（stores_id）
-    await supabase
-      .from("formatted_working_hours")
-      .delete()
-      .eq("stores_id", storeId);
-
-    // 5. formatted_tip_data を削除（stores_id）
-    await supabase
-      .from("formatted_tip_data")
-      .delete()
-      .eq("stores_id", storeId);
-
-    // 6. tip_calculations のその 1 件を削除
-    await supabase
-      .from("tip_calculations")
-      .delete()
-      .eq("id", calculationId);
-
-    res.status(200).json({ success: true });
-  } catch (error) {
-    console.error("Error rollback-processing-calculation:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+  },
+);
 
 // DELETE /api/tips/calculation
 // processing 状態の計算と中間データを削除する（既存の動き）
@@ -1520,7 +1526,7 @@ app.delete("/api/tips/calculation", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -1548,7 +1554,7 @@ app.delete("/api/tips/calculation", authMiddleware, async (req, res) => {
     if (deleteCalcError) {
       console.error("Supabase delete tip_calculations error:", deleteCalcError);
       throw new Error(
-        `Failed to delete tip_calculations: ${deleteCalcError.message}`
+        `Failed to delete tip_calculations: ${deleteCalcError.message}`,
       );
     }
 
@@ -1561,10 +1567,10 @@ app.delete("/api/tips/calculation", authMiddleware, async (req, res) => {
     if (deleteWorkingHoursError) {
       console.error(
         "Supabase delete formatted_working_hours error:",
-        deleteWorkingHoursError
+        deleteWorkingHoursError,
       );
       throw new Error(
-        `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`
+        `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`,
       );
     }
 
@@ -1577,10 +1583,10 @@ app.delete("/api/tips/calculation", authMiddleware, async (req, res) => {
     if (deleteTipDataError) {
       console.error(
         "Supabase delete formatted_tip_data error:",
-        deleteTipDataError
+        deleteTipDataError,
       );
       throw new Error(
-        `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`
+        `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`,
       );
     }
 
@@ -1593,10 +1599,10 @@ app.delete("/api/tips/calculation", authMiddleware, async (req, res) => {
     if (deleteCashTipError) {
       console.error(
         "Supabase delete formatted_cash_tip error:",
-        deleteCashTipError
+        deleteCashTipError,
       );
       throw new Error(
-        `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`
+        `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`,
       );
     }
 
@@ -1631,7 +1637,7 @@ app.delete(
       if (storeUsersError) {
         console.error("Supabase select store_users error:", storeUsersError);
         throw new Error(
-          `Failed to fetch user stores: ${storeUsersError.message}`
+          `Failed to fetch user stores: ${storeUsersError.message}`,
         );
       }
 
@@ -1674,10 +1680,10 @@ app.delete(
       if (deleteResultsError) {
         console.error(
           "Supabase delete tip_calculation_results error:",
-          deleteResultsError
+          deleteResultsError,
         );
         throw new Error(
-          `Failed to delete tip_calculation_results: ${deleteResultsError.message}`
+          `Failed to delete tip_calculation_results: ${deleteResultsError.message}`,
         );
       }
 
@@ -1691,10 +1697,10 @@ app.delete(
       if (deleteCalcError) {
         console.error(
           "Supabase delete tip_calculations error:",
-          deleteCalcError
+          deleteCalcError,
         );
         throw new Error(
-          `Failed to delete tip_calculations: ${deleteCalcError.message}`
+          `Failed to delete tip_calculations: ${deleteCalcError.message}`,
         );
       }
 
@@ -1707,10 +1713,10 @@ app.delete(
       if (deleteWorkingHoursError) {
         console.error(
           "Supabase delete formatted_working_hours error:",
-          deleteWorkingHoursError
+          deleteWorkingHoursError,
         );
         throw new Error(
-          `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`
+          `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`,
         );
       }
 
@@ -1722,10 +1728,10 @@ app.delete(
       if (deleteTipDataError) {
         console.error(
           "Supabase delete formatted_tip_data error:",
-          deleteTipDataError
+          deleteTipDataError,
         );
         throw new Error(
-          `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`
+          `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`,
         );
       }
 
@@ -1737,10 +1743,10 @@ app.delete(
       if (deleteCashTipError) {
         console.error(
           "Supabase delete formatted_cash_tip error:",
-          deleteCashTipError
+          deleteCashTipError,
         );
         throw new Error(
-          `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`
+          `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`,
         );
       }
 
@@ -1751,7 +1757,7 @@ app.delete(
       console.error("Error deleting completed calculation data:", error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // POST /api/tips/calculate
@@ -1772,7 +1778,7 @@ app.post("/api/tips/calculate", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -1879,7 +1885,7 @@ app.get("/api/tips/employee-tip-status", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -1947,7 +1953,7 @@ app.post("/api/tips/employee-tip-status", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -1967,7 +1973,7 @@ app.post("/api/tips/employee-tip-status", authMiddleware, async (req, res) => {
     if (deleteError) {
       console.error("Supabase delete employee_tip_status error:", deleteError);
       throw new Error(
-        `Failed to delete existing employee tip status: ${deleteError.message}`
+        `Failed to delete existing employee tip status: ${deleteError.message}`,
       );
     }
 
@@ -1987,10 +1993,10 @@ app.post("/api/tips/employee-tip-status", authMiddleware, async (req, res) => {
       if (insertError) {
         console.error(
           "Supabase insert employee_tip_status error:",
-          insertError
+          insertError,
         );
         throw new Error(
-          `Failed to save employee tip status: ${insertError.message}`
+          `Failed to save employee tip status: ${insertError.message}`,
         );
       }
     }
@@ -2036,7 +2042,7 @@ app.delete(
       if (storeUsersError) {
         console.error("Supabase select store_users error:", storeUsersError);
         throw new Error(
-          `Failed to fetch user stores: ${storeUsersError.message}`
+          `Failed to fetch user stores: ${storeUsersError.message}`,
         );
       }
 
@@ -2066,10 +2072,10 @@ app.delete(
       if (deleteError) {
         console.error(
           "Supabase delete employee_tip_status error:",
-          deleteError
+          deleteError,
         );
         throw new Error(
-          `Failed to delete employee tip status: ${deleteError.message}`
+          `Failed to delete employee tip status: ${deleteError.message}`,
         );
       }
 
@@ -2080,7 +2086,7 @@ app.delete(
       console.error("Error deleting employee tip status:", error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // GET /api/tips/calculation-results
@@ -2115,7 +2121,7 @@ app.get("/api/tips/calculation-results", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -2152,10 +2158,10 @@ app.get("/api/tips/calculation-results", authMiddleware, async (req, res) => {
     if (resultsError) {
       console.error(
         "Supabase select tip_calculation_results error:",
-        resultsError
+        resultsError,
       );
       throw new Error(
-        `Failed to fetch calculation results: ${resultsError.message}`
+        `Failed to fetch calculation results: ${resultsError.message}`,
       );
     }
 
@@ -2192,7 +2198,7 @@ app.get("/api/tips/records", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -2229,14 +2235,14 @@ app.get("/api/tips/records", authMiddleware, async (req, res) => {
     const { data: results, error: resultsError } = await supabase
       .from("tip_calculation_results")
       .select(
-        "id, calculation_id, name, date, tips, cash_tips, is_archived, archived_at"
+        "id, calculation_id, name, date, tips, cash_tips, is_archived, archived_at",
       )
       .in("calculation_id", calculationIds);
 
     if (resultsError) {
       console.error(
         "Supabase select tip_calculation_results error:",
-        resultsError
+        resultsError,
       );
       throw new Error(`Failed to fetch records: ${resultsError.message}`);
     }
@@ -2342,7 +2348,7 @@ app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -2370,7 +2376,7 @@ app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
       if (updateError) {
         console.error("Supabase update tip_calculations error:", updateError);
         throw new Error(
-          `Failed to update calculation status: ${updateError.message}`
+          `Failed to update calculation status: ${updateError.message}`,
         );
       }
     }
@@ -2384,10 +2390,10 @@ app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
     if (deleteWorkingHoursError) {
       console.error(
         "Supabase delete formatted_working_hours error:",
-        deleteWorkingHoursError
+        deleteWorkingHoursError,
       );
       throw new Error(
-        `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`
+        `Failed to delete formatted_working_hours: ${deleteWorkingHoursError.message}`,
       );
     }
 
@@ -2400,10 +2406,10 @@ app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
     if (deleteTipDataError) {
       console.error(
         "Supabase delete formatted_tip_data error:",
-        deleteTipDataError
+        deleteTipDataError,
       );
       throw new Error(
-        `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`
+        `Failed to delete formatted_tip_data: ${deleteTipDataError.message}`,
       );
     }
 
@@ -2416,10 +2422,10 @@ app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
     if (deleteCashTipError) {
       console.error(
         "Supabase delete formatted_cash_tip error:",
-        deleteCashTipError
+        deleteCashTipError,
       );
       throw new Error(
-        `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`
+        `Failed to delete formatted_cash_tip: ${deleteCashTipError.message}`,
       );
     }
 
@@ -2432,7 +2438,7 @@ app.delete("/api/tips/formatted-data", authMiddleware, async (req, res) => {
     if (deleteTipStatusError) {
       console.error(
         "Supabase delete employee_tip_status error:",
-        deleteTipStatusError
+        deleteTipStatusError,
       );
       // employee_tip_statusの削除エラーは致命的ではないので、警告のみ（続行）
       console.warn("Failed to delete employee_tip_status, but continuing...");
@@ -2468,7 +2474,7 @@ app.delete(
       if (storeUsersError) {
         console.error("Supabase select store_users error:", storeUsersError);
         throw new Error(
-          `Failed to fetch user stores: ${storeUsersError.message}`
+          `Failed to fetch user stores: ${storeUsersError.message}`,
         );
       }
 
@@ -2515,7 +2521,7 @@ app.delete(
       if (deleteError) {
         console.error(
           "Supabase delete tip_calculation_results error:",
-          deleteError
+          deleteError,
         );
         throw new Error(`Failed to delete record: ${deleteError.message}`);
       }
@@ -2535,7 +2541,7 @@ app.delete(
         if (deleteCalcError) {
           console.error(
             "Supabase delete tip_calculations (orphan) error:",
-            deleteCalcError
+            deleteCalcError,
           );
           // 削除失敗してもレコード削除は成功しているので 200 のまま返す
         }
@@ -2546,7 +2552,7 @@ app.delete(
       console.error("Error deleting calculation result:", error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // PATCH /api/tips/calculation-results/:id/archive
@@ -2570,7 +2576,7 @@ app.patch(
       if (storeUsersError) {
         console.error("Supabase select store_users error:", storeUsersError);
         throw new Error(
-          `Failed to fetch user stores: ${storeUsersError.message}`
+          `Failed to fetch user stores: ${storeUsersError.message}`,
         );
       }
 
@@ -2620,7 +2626,7 @@ app.patch(
       if (updateError) {
         console.error(
           "Supabase update tip_calculation_results error:",
-          updateError
+          updateError,
         );
         throw new Error(`Failed to archive record: ${updateError.message}`);
       }
@@ -2630,7 +2636,7 @@ app.patch(
       console.error("Error archiving calculation result:", error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // PATCH /api/tips/calculation-results/:id/unarchive
@@ -2654,7 +2660,7 @@ app.patch(
       if (storeUsersError) {
         console.error("Supabase select store_users error:", storeUsersError);
         throw new Error(
-          `Failed to fetch user stores: ${storeUsersError.message}`
+          `Failed to fetch user stores: ${storeUsersError.message}`,
         );
       }
 
@@ -2704,7 +2710,7 @@ app.patch(
       if (updateError) {
         console.error(
           "Supabase update tip_calculation_results error:",
-          updateError
+          updateError,
         );
         throw new Error(`Failed to unarchive record: ${updateError.message}`);
       }
@@ -2714,7 +2720,7 @@ app.patch(
       console.error("Error unarchiving calculation result:", error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // PATCH /api/tips/calculation-results/:id - Update tips and cash_tips
@@ -2756,7 +2762,7 @@ app.patch(
       if (storeUsersError) {
         console.error("Supabase select store_users error:", storeUsersError);
         throw new Error(
-          `Failed to fetch user stores: ${storeUsersError.message}`
+          `Failed to fetch user stores: ${storeUsersError.message}`,
         );
       }
 
@@ -2811,7 +2817,7 @@ app.patch(
       if (updateError) {
         console.error(
           "Supabase update tip_calculation_results error:",
-          updateError
+          updateError,
         );
         throw new Error(`Failed to update record: ${updateError.message}`);
       }
@@ -2821,7 +2827,7 @@ app.patch(
       console.error("Error updating calculation result:", error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // GET /api/tips/calculation-status
@@ -2842,7 +2848,7 @@ app.get("/api/tips/calculation-status", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -2872,7 +2878,7 @@ app.get("/api/tips/calculation-status", authMiddleware, async (req, res) => {
     if (completedError && completedError.code !== "PGRST116") {
       console.error("Supabase select tip_calculations error:", completedError);
       throw new Error(
-        `Failed to fetch calculation status: ${completedError.message}`
+        `Failed to fetch calculation status: ${completedError.message}`,
       );
     }
 
@@ -2896,7 +2902,7 @@ app.get("/api/tips/calculation-status", authMiddleware, async (req, res) => {
     if (processingError && processingError.code !== "PGRST116") {
       console.error("Supabase select tip_calculations error:", processingError);
       throw new Error(
-        `Failed to fetch calculation status: ${processingError.message}`
+        `Failed to fetch calculation status: ${processingError.message}`,
       );
     }
 
@@ -2933,7 +2939,7 @@ app.get("/api/stores/calculation-status", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -3048,7 +3054,7 @@ app.post("/api/tips/calculation/revert", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -3077,7 +3083,7 @@ app.post("/api/tips/calculation/revert", authMiddleware, async (req, res) => {
       "revert_calculation",
       {
         p_calculation_id: calculationId,
-      }
+      },
     );
 
     // RPCエラーチェック
@@ -3116,7 +3122,7 @@ app.get(
       if (storeUsersError) {
         console.error("Supabase select store_users error:", storeUsersError);
         throw new Error(
-          `Failed to fetch user stores: ${storeUsersError.message}`
+          `Failed to fetch user stores: ${storeUsersError.message}`,
         );
       }
 
@@ -3148,7 +3154,7 @@ app.get(
         if (error) {
           console.error(
             "Supabase select formatted_working_hours error:",
-            error
+            error,
           );
           throw new Error(`Failed to fetch working hours: ${error.message}`);
         }
@@ -3180,7 +3186,7 @@ app.get(
       console.error("Error fetching formatted working hours:", error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // PUT /api/tips/formatted-working-hours
@@ -3204,7 +3210,7 @@ app.put(
       if (storeUsersError) {
         console.error("Supabase select store_users error:", storeUsersError);
         throw new Error(
-          `Failed to fetch user stores: ${storeUsersError.message}`
+          `Failed to fetch user stores: ${storeUsersError.message}`,
         );
       }
 
@@ -3235,7 +3241,7 @@ app.put(
       if (fetchError) {
         console.error(
           "Supabase select formatted_working_hours error:",
-          fetchError
+          fetchError,
         );
         throw new Error(`Failed to fetch records: ${fetchError.message}`);
       }
@@ -3244,7 +3250,7 @@ app.put(
       const authorizedRecordIds = new Set(
         existingRecords
           .filter((r) => storeIds.includes(r.stores_id))
-          .map((r) => r.id)
+          .map((r) => r.id),
       );
 
       // 各レコードを更新（権限チェック済みのもののみ）
@@ -3297,7 +3303,7 @@ app.put(
       console.error("Error updating formatted working hours:", error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // DELETE /api/tips/formatted-working-hours/:id
@@ -3321,7 +3327,7 @@ app.delete(
       if (storeUsersError) {
         console.error("Supabase select store_users error:", storeUsersError);
         throw new Error(
-          `Failed to fetch user stores: ${storeUsersError.message}`
+          `Failed to fetch user stores: ${storeUsersError.message}`,
         );
       }
 
@@ -3357,7 +3363,7 @@ app.delete(
       if (deleteError) {
         console.error(
           "Supabase delete formatted_working_hours error:",
-          deleteError
+          deleteError,
         );
         throw new Error(`Failed to delete record: ${deleteError.message}`);
       }
@@ -3370,7 +3376,7 @@ app.delete(
       console.error("Error deleting formatted working hours record:", error);
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // POST /api/tips/format-tip-data
@@ -3420,11 +3426,11 @@ app.post("/api/tips/format-tip-data", authMiddleware, async (req, res) => {
       console.error("Supabase select tip_calculations error:", calcError);
       // If calculation record not found, skip adjustment (not critical)
       console.warn(
-        "No processing calculation found, skipping off-hours adjustment"
+        "No processing calculation found, skipping off-hours adjustment",
       );
     } else if (calculation) {
       // 4. Call adjust_off_hours_tips function via RPC
-      console.log('[DEBUG] Starting adjust_off_hours_tips...');
+      console.log("[DEBUG] Starting adjust_off_hours_tips...");
       const rpcStartTime = Date.now();
       const { error: rpcError } = await supabase.rpc("adjust_off_hours_tips", {
         p_store_id: stores_id,
@@ -3432,7 +3438,9 @@ app.post("/api/tips/format-tip-data", authMiddleware, async (req, res) => {
         p_period_end: calculation.period_end,
       });
       const rpcEndTime = Date.now();
-      console.log(`[DEBUG] adjust_off_hours_tips completed in ${rpcEndTime - rpcStartTime}ms`);
+      console.log(
+        `[DEBUG] adjust_off_hours_tips completed in ${rpcEndTime - rpcStartTime}ms`,
+      );
 
       if (rpcError) {
         console.error("Supabase RPC adjust_off_hours_tips error:", rpcError);
@@ -3468,13 +3476,13 @@ app.get("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
     if (!storeUsers || storeUsers.length === 0) {
       // ユーザーが権限を持つ店がない場合
-      if (count_only === 'true') {
+      if (count_only === "true") {
         return res.status(200).json({
           success: true,
           count: 0,
@@ -3498,10 +3506,10 @@ app.get("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
       }
 
       // count_only=true の場合は件数のみ返す（全データ対象）
-      if (count_only === 'true') {
+      if (count_only === "true") {
         const { count, error } = await supabase
           .from("formatted_tip_data")
-          .select("*", { count: 'exact', head: true })
+          .select("*", { count: "exact", head: true })
           .eq("stores_id", storeId);
 
         if (error) {
@@ -3536,10 +3544,10 @@ app.get("/api/tips/formatted-tip-data", authMiddleware, async (req, res) => {
     }
 
     // 4. 店舗IDが指定されていない場合
-    if (count_only === 'true') {
+    if (count_only === "true") {
       const { count, error } = await supabase
         .from("formatted_tip_data")
-        .select("*", { count: 'exact', head: true })
+        .select("*", { count: "exact", head: true })
         .in("stores_id", storeIds);
 
       if (error) {
@@ -3744,7 +3752,7 @@ app.get("/api/tips/formatted-cash-tip", authMiddleware, async (req, res) => {
     if (storeUsersError) {
       console.error("Supabase select store_users error:", storeUsersError);
       throw new Error(
-        `Failed to fetch user stores: ${storeUsersError.message}`
+        `Failed to fetch user stores: ${storeUsersError.message}`,
       );
     }
 
@@ -4047,7 +4055,7 @@ app.delete("/api/role-mappings/:id", authMiddleware, async (req, res) => {
     if (rolePercentageError) {
       console.error(
         "Supabase select role_percentage error:",
-        rolePercentageError
+        rolePercentageError,
       );
       return res.status(500).json({ error: rolePercentageError.message });
     }
@@ -4182,7 +4190,7 @@ app.post("/api/tip-pool/add-role", authMiddleware, async (req, res) => {
     const { data: existingGroups } = await supabase
       .from("role_percentage")
       .select(
-        "distribution_grouping, role_mapping_id, percentage, role_mappings!inner(store_id)"
+        "distribution_grouping, role_mapping_id, percentage, role_mappings!inner(store_id)",
       )
       .eq("role_mappings.store_id", storeId)
       .order("distribution_grouping", { ascending: true });
@@ -4252,7 +4260,7 @@ app.post("/api/tip-pool/add-role", authMiddleware, async (req, res) => {
     // For patterns with multiple roles > 0, set default values
     newUniquePatterns.forEach((pattern) => {
       const nonZeroRoles = Object.entries(pattern).filter(
-        ([_, val]) => val === -1
+        ([_, val]) => val === -1,
       );
       if (nonZeroRoles.length === 1) {
         pattern[nonZeroRoles[0][0]] = 100;
@@ -4269,7 +4277,7 @@ app.post("/api/tip-pool/add-role", authMiddleware, async (req, res) => {
     // Create new records for new unique patterns
     const maxGroup = Math.max(
       ...Object.keys(groupedPatterns).map((g) => parseInt(g)),
-      0
+      0,
     );
     newUniquePatterns.forEach((pattern, index) => {
       const groupNum = maxGroup + index + 1;
@@ -4333,7 +4341,7 @@ app.delete("/api/tip-pool/remove-role", authMiddleware, async (req, res) => {
     const { data: rolePercentages, error: fetchError } = await supabase
       .from("role_percentage")
       .select(
-        "distribution_grouping, percentage, role_mappings!inner(store_id)"
+        "distribution_grouping, percentage, role_mappings!inner(store_id)",
       )
       .eq("role_mapping_id", roleMappingId)
       .eq("role_mappings.store_id", storeId);
@@ -4377,7 +4385,7 @@ app.delete("/api/tip-pool/remove-role", authMiddleware, async (req, res) => {
       if (deleteGroupsError) {
         console.error(
           "Supabase delete role_percentage groups error:",
-          deleteGroupsError
+          deleteGroupsError,
         );
         return res.status(500).json({ error: deleteGroupsError.message });
       }
@@ -4435,7 +4443,7 @@ app.put("/api/tip-pool", authMiddleware, async (req, res) => {
     for (const pattern of patterns) {
       const total = pattern.percentages.reduce(
         (sum, p) => sum + p.percentage,
-        0
+        0,
       );
       if (total !== 100) {
         return res.status(400).json({
@@ -4529,7 +4537,7 @@ async function renumberDistributionGrouping(storeId) {
       if (updateError) {
         console.error(
           "Supabase update distribution_grouping error:",
-          updateError
+          updateError,
         );
       }
     }
